@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from adversarial import fgm
 from sklearn.utils import shuffle
 
-import model_alexnet_small as model
+import models.alexnet_small as model
 
 def loss(g, Y):
     """Cross-entropy loss between labels and output of linear activation function"""

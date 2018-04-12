@@ -3,7 +3,7 @@
 
 import tensorflow as tf
 import numpy as np
-import sn
+from .. import sn
 
 def incept(input_x, input_filters, ch1_filters, ch3_filters, spectral_norm=True, scope_name='incept'):
     """Inception module"""
@@ -16,10 +16,10 @@ def incept(input_x, input_filters, ch1_filters, ch3_filters, spectral_norm=True,
     with tf.variable_scope(scope_name):
         ch1_output = tf.nn.relu(sn.conv2d(input_x, [1, 1, input_filters, ch1_filters],
                                           scope_name='conv_ch1', spectral_norm=spectral_norm,
-                                          xavier=True, bn=bn))
+                                          xavier=True, bn=bn, tighter_sn=True))
         ch3_output = tf.nn.relu(sn.conv2d(input_x, [3, 3, input_filters, ch3_filters],
                                           scope_name='conv_ch3', spectral_norm=spectral_norm,
-                                          xavier=True, bn=bn))
+                                          xavier=True, bn=bn, tighter_sn=True))
         return tf.concat([ch1_output, ch3_output], axis=-1)
 
 
@@ -34,7 +34,7 @@ def downsample(input_x, input_filters, ch3_filters, spectral_norm=True, scope_na
     with tf.variable_scope(scope_name):
         ch3_output = tf.nn.relu(sn.conv2d(input_x, [3, 3, input_filters, ch3_filters],
                                           scope_name='conv_ch3', spectral_norm=spectral_norm,
-                                          xavier=True, bn=bn, stride=2))
+                                          xavier=True, bn=bn, stride=2, tighter_sn=True))
         pool_output = tf.nn.max_pool(input_x, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                                      padding='SAME', name='pool')
         return tf.concat([ch3_output, pool_output], axis=-1)

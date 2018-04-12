@@ -3,7 +3,7 @@
 
 import tensorflow as tf
 import numpy as np
-import sn
+from .. import sn
 
 def alexnet(NUM_CLASSES, wd=0):
     """AlexNet architecture
@@ -49,12 +49,12 @@ def alexnet_sn(NUM_CLASSES, wd=0):
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
     input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
     
-    conv = sn.conv2d(input_data, [5, 5, 3, 96], scope_name='conv1')
+    conv = sn.conv2d(input_data, [5, 5, 3, 96], scope_name='conv1', tighter_sn=True)
     conv1 = tf.nn.relu(conv, name='conv1_relu')
     pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool1')
 
-    conv = sn.conv2d(pool1, [5, 5, 96, 256], scope_name='conv2')
+    conv = sn.conv2d(pool1, [5, 5, 96, 256], scope_name='conv2', tighter_sn=True)
     conv2 = tf.nn.relu(conv, name='conv2_relu')
     pool2 = tf.nn.max_pool(conv2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool2')
@@ -81,12 +81,12 @@ def alexnet_sar(NUM_CLASSES, wd=0):
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
     input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
     
-    conv = sn.conv2d(input_data, [5, 5, 3, 96], scope_name='conv1')
+    conv = sn.conv2d(input_data, [5, 5, 3, 96], scope_name='conv1', tighter_sn=True)
     conv1 = tf.nn.relu(conv, name='conv1_relu')
     pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool1')
 
-    conv = sn.conv2d(pool1, [5, 5, 96, 256], scope_name='conv2')
+    conv = sn.conv2d(pool1, [5, 5, 96, 256], scope_name='conv2', tighter_sn=True)
     conv2 = tf.nn.relu(conv, name='conv2_relu')
     pool2 = tf.nn.max_pool(conv2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool2')

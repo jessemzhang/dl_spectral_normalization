@@ -1,8 +1,9 @@
-# Can perfectly fit random labels for 20k CIFAR10 samples, but not 50k
+# Using the filter sizes found here: 
+# https://github.com/rharish101/DLGeneralization/blob/master/Mini%20Alexnet/cifar10_alexnet.py
 
 import tensorflow as tf
 import numpy as np
-import sn
+from .. import sn
 
 def alexnet(NUM_CLASSES, wd=0):
     """AlexNet architecture
@@ -14,19 +15,19 @@ def alexnet(NUM_CLASSES, wd=0):
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
     input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
     
-    conv = sn.conv2d(input_data, [5, 5, 3, 64], scope_name='conv1', spectral_norm=False)
+    conv = sn.conv2d(input_data, [5, 5, 3, 96], scope_name='conv1', spectral_norm=False)
     conv1 = tf.nn.relu(conv, name='conv1_relu')
     pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool1')
     norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name='norm1')
     
-    conv = sn.conv2d(norm1, [5, 5, 64, 64], scope_name='conv2', spectral_norm=False)
+    conv = sn.conv2d(norm1, [5, 5, 96, 256], scope_name='conv2', spectral_norm=False)
     conv2 = tf.nn.relu(conv, name='conv2_relu')
     pool2 = tf.nn.max_pool(conv2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool2')
     norm2 = tf.nn.lrn(pool2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name='norm2')
     
-    reshape = tf.reshape(norm2, [-1, 6*6*64])
+    reshape = tf.reshape(norm2, [-1, 6*6*256])
     lin = sn.linear(reshape, 384, scope_name='linear1', spectral_norm=False)
     lin1 = tf.nn.relu(lin, name='linear1_relu')
 
@@ -48,17 +49,17 @@ def alexnet_sn(NUM_CLASSES, wd=0):
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
     input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
     
-    conv = sn.conv2d(input_data, [5, 5, 3, 64], scope_name='conv1')
+    conv = sn.conv2d(input_data, [5, 5, 3, 96], scope_name='conv1')
     conv1 = tf.nn.relu(conv, name='conv1_relu')
     pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool1')
 
-    conv = sn.conv2d(pool1, [5, 5, 64, 64], scope_name='conv2')
+    conv = sn.conv2d(pool1, [5, 5, 96, 256], scope_name='conv2')
     conv2 = tf.nn.relu(conv, name='conv2_relu')
     pool2 = tf.nn.max_pool(conv2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool2')
     
-    reshape = tf.reshape(pool2, [-1, 6*6*64])
+    reshape = tf.reshape(pool2, [-1, 6*6*256])
     lin = sn.linear(reshape, 384, scope_name='linear1')
     lin1 = tf.nn.relu(lin, name='linear1_relu')
 
@@ -80,17 +81,17 @@ def alexnet_sar(NUM_CLASSES, wd=0):
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
     input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
     
-    conv = sn.conv2d(input_data, [5, 5, 3, 64], scope_name='conv1')
+    conv = sn.conv2d(input_data, [5, 5, 3, 96], scope_name='conv1')
     conv1 = tf.nn.relu(conv, name='conv1_relu')
     pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool1')
 
-    conv = sn.conv2d(pool1, [5, 5, 64, 64], scope_name='conv2')
+    conv = sn.conv2d(pool1, [5, 5, 96, 256], scope_name='conv2')
     conv2 = tf.nn.relu(conv, name='conv2_relu')
     pool2 = tf.nn.max_pool(conv2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool2')
     
-    reshape = tf.reshape(pool2, [-1, 6*6*64])
+    reshape = tf.reshape(pool2, [-1, 6*6*256])
     lin = sn.linear(reshape, 384, scope_name='linear1')
     lin1 = tf.nn.relu(lin, name='linear1_relu')
 

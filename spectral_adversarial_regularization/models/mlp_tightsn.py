@@ -2,7 +2,7 @@
 
 import tensorflow as tf
 import numpy as np
-import sn
+from .. import sn
 
 def mlp1(NUM_CLASSES, wd=0):
     """1-hidden-layer Multilayer Perceptron architecture"""
