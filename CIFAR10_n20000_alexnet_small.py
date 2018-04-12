@@ -13,13 +13,13 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 
-import model_alexnet_small as model
-import dl_utils
+from spectral_adversarial_regularization.models import alexnet_small as model
+from spectral_adversarial_regularization import dl_utils
 from get_cifar10 import get_cifar10_dataset
 
 maindir = 'save_weights_n20000_alexnet_small/'
 retrain = True
-save_every = 25
+save_every = 50
 num_classes = 10
 num_epochs = 500
 
@@ -27,7 +27,7 @@ num_epochs = 500
 # In[ ]:
 
 # Load dataset
-n_samps = 20000
+n_samps = 50000
 
 # each value: Xtr, Ytr, Xtt, Ytt
 data = {
@@ -37,8 +37,6 @@ data = {
 
 
 # # 1. Basic model (no spectral normalization or regularization)
-# 
-# We do use [local response normalization](https://www.tensorflow.org/api_docs/python/tf/nn/local_response_normalization) as discussed in the original AlexNet paper.
 
 # In[ ]:
 

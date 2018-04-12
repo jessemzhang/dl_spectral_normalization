@@ -321,8 +321,20 @@ def get_embedding(X, num_classes, save_dir):
         return sess.run(graph['fc_out'], feed_dict={graph['input_data']: X})
     
     
-def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2):    
-    """Check singular value of all weights"""
+def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2, tighter_sn=False):    
+    """Check singular value of all weights
+       
+       Use the tighter_sn bool to get sum of singular values of individual convolutions
+       represented by bands (important for convolution operations)
+    """
+    
+    def get_s(w):
+        s_total = 0
+        for i in range(w.shape[0]):
+            for j in range(w.shape[1]):
+                s = np.linalg.svd(w[i][j])[1][0]
+                s_total += s
+        print(s_total)
     
     tf.reset_default_graph()
     graph = graph_builder_wrapper(num_classes, save_dir, arch=arch)
@@ -341,6 +353,9 @@ def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2):
                 print('%30s with shape %15s and top %s sv(s): %s' \
                       %(tfvar.name, np.shape(W), n, 
                         ', '.join(['%.2f'%(i) for i in np.linalg.svd(W.reshape(-1, np.shape(W)[-1]))[1][:n]])))
+                
+                if tighter_sn and 'conv' in tfvar.name:
+                    print('    Sum of singular values across convolutions: %.2f'%(get_s(W)))
                 
 
 def print_total_number_of_trainable_params():
