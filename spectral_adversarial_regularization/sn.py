@@ -16,7 +16,7 @@ def l2_norm(input_x, epsilon=1e-12):
     return input_x_norm
 
 
-def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=False,
+def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=False, u_width=28,
            padding='SAME', spectral_norm=True, update_collection=None, xavier=False, bn=False):
     """2D convolution layer with spectral normalization option"""
     
@@ -30,7 +30,9 @@ def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=False
                                       initializer=tf.random_normal_initializer(stddev=0.02))
         bias = tf.get_variable('bias', output_len, tf.float32, initializer=tf.constant_initializer(0))
         if spectral_norm:
-            weights = weights_spectral_norm(weights, update_collection=update_collection, tighter_sn=tighter_sn)
+            weights = weights_spectral_norm(weights, update_collection=update_collection,
+                                            tighter_sn=tighter_sn, u_width=u_width, 
+                                            u_depth=kernel_size[-2], stride=stride, padding=padding)
         conv = tf.nn.conv2d(input_x, weights, strides=[1, stride, stride, 1], padding=padding)
         conv = tf.nn.bias_add(conv, bias)
         if bn:
@@ -70,7 +72,8 @@ def linear(input_x, output_size, scope_name='linear', spectral_norm=True,
 
 
 def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
-                          reuse=False, name='weights_SN', tighter_sn=False):
+                          reuse=False, name='weights_SN',
+                          tighter_sn=False, u_width=28, u_depth=3, stride=1, padding='SAME'):
     """Perform spectral normalization"""
 
     def power_iteration(u, w_mat, Ip):
@@ -78,6 +81,14 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
         for _ in range(Ip):
             v_ = l2_norm(tf.matmul(u_, tf.transpose(w_mat)))
             u_ = l2_norm(tf.matmul(v_, w_mat))
+        return u_, v_
+
+    def power_iteration_conv(u, w_mat, Ip):
+        u_ = u
+        for _ in range(Ip):
+            v_ = l2_norm(tf.nn.conv2d(u_, w_mat, strides=[1, stride, stride, 1], padding=padding))
+            u_ = l2_norm(tf.nn.conv2d_transpose(v_, w_mat, [1, u_width, u_width, u_depth],
+                                                strides=[1, stride, stride, 1], padding=padding))
         return u_, v_
 
     with tf.variable_scope(name) as scope:
@@ -88,31 +99,40 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
         w_mat = tf.reshape(weights, [-1, w_shape[-1]])
         
         # The tighter spectral normalization approach breaks the [f_in, f_out, d_in, d_out] filters
-        # into a set of f_in*f_out subfilters each of size d_in*d_out. We want to get the spectral 
-        # norm of each of these subfilters and normalize the original w_mat by the sum of these
-        # spectral norms (this will guarantee that the linear transformation due to conv2d will 
-        # remain spectral norm <= 1). 
+        # into a set of f_in*f_out subfilters each of size d_in*d_out.
         # ONLY USE THIS FOR conv2d LAYERS. Original sn works better for fully-connected layers
         if tighter_sn:
-            
             if u is None:
-                u = tf.get_variable('u', shape=[w_shape[0]*w_shape[1], w_shape[-1]], 
+                # Initialize u (our "eigenimage")
+                u = tf.get_variable('u', shape=[1, u_width, u_width, u_depth], 
                                     initializer=tf.truncated_normal_initializer(), trainable=False)
-            
-            w_mat_list = tf.split(w_mat, w_shape[0]*w_shape[1], axis=0)
-            u_list = tf.split(u, w_shape[0]*w_shape[1], axis=0)
-            
-            sigma_list = []
-            u_hat_list = []
 
-            for i, w in enumerate(w_mat_list):
-                u_hat_, v_hat_ = power_iteration(u_list[i], w, Ip)
-                u_hat_list.append(u_hat_)
-                sigma_list.append(tf.matmul(tf.matmul(v_hat_, w), tf.transpose(u_hat_)))
+            u_hat, v_hat = power_iteration_conv(u, weights, Ip)
+            z = tf.nn.conv2d(u_hat, weights, strides=[1, stride, stride, 1], padding=padding)
+            sigma = tf.reduce_sum(tf.multiply(z, v_hat))
+            
+#             # We want to get the spectral norm of each of these subfilters and normalize the original 
+#             # w_mat by the sum of these spectral norms (this will guarantee that the linear transformation 
+#             # due to conv2d will remain spectral norm <= 1).             
+#             if u is None:
+#                 u = tf.get_variable('u', shape=[w_shape[0]*w_shape[1], w_shape[-1]], 
+#                                     initializer=tf.truncated_normal_initializer(), trainable=False)
+            
+#             w_mat_list = tf.split(w_mat, w_shape[0]*w_shape[1], axis=0)
+#             u_list = tf.split(u, w_shape[0]*w_shape[1], axis=0)
+            
+#             sigma_list = []
+#             u_hat_list = []
+
+#             for i, w in enumerate(w_mat_list):
+#                 u_hat_, v_hat_ = power_iteration(u_list[i], w, Ip)
+#                 u_hat_list.append(u_hat_)
+#                 sigma_list.append(tf.matmul(tf.matmul(v_hat_, w), tf.transpose(u_hat_)))
                 
-            u_hat = tf.concat(u_hat_list, 0)
-            sigma = tf.add_n(sigma_list)
-        
+#             u_hat = tf.concat(u_hat_list, 0)
+#             sigma = tf.add_n(sigma_list)
+
+        # Use the spectral normalization proposed in SN-GAN paper
         else:
             if u is None:
                 u = tf.get_variable('u', shape=[1, w_shape[-1]], 

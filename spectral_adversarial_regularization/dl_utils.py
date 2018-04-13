@@ -54,9 +54,9 @@ def graph_builder_wrapper(num_classes, save_dir,
 
     # Merge all the summaries and write them out to save_dir
     merged = tf.summary.merge_all()
-    train_writer = tf.summary.FileWriter(save_dir + '/train')
+    train_writer = tf.summary.FileWriter(os.path.join(save_dir, 'train'))
     train_writer.add_graph(tf.get_default_graph())
-    valid_writer = tf.summary.FileWriter(save_dir + '/validation')
+    valid_writer = tf.summary.FileWriter(os.path.join(save_dir, 'validation'))
 
     # Fast gradient method for finding adversarial examples
     adv_x = fgm(input_data, fc_out, y=None, eps=eps, order=order, clip_min=None, clip_max=None)
@@ -118,12 +118,13 @@ def train(Xtr, Ytr, graph, save_dir,
         elif load_epoch > -1:
             if verbose:
                 print('Continuing training starting at epoch %s+1'%(load_epoch))
-            restore_weights_file = save_dir+'checkpoints/epoch'+str(load_epoch)
+            restore_weights_file = os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch))
             graph['saver'].restore(sess, restore_weights_file)
 
         else:
-            if not os.path.exists(save_dir+'checkpoints/'): os.mkdir(save_dir+'checkpoints/')
-            graph['saver'].save(sess, save_dir+'checkpoints/initial_weights')
+            if not os.path.exists(os.path.join(save_dir, 'checkpoints')):
+                os.mkdir(os.path.join(save_dir, 'checkpoints'))
+            graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'initial_weights'))
         
         for epoch in range(load_epoch+1, load_epoch+num_epochs+1):
 
@@ -169,7 +170,7 @@ def train(Xtr, Ytr, graph, save_dir,
                     graph['valid_writer'].add_summary(summary, epoch)
 
             if epoch%save_every == 0: # saving weights
-                graph['saver'].save(sess, save_dir+'checkpoints/epoch'+str(epoch))
+                graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch)))
 
             training_losses.append(training_loss/steps)
             training_accs.append(training_acc/steps)
@@ -181,8 +182,8 @@ def train(Xtr, Ytr, graph, save_dir,
                 break
 
         print('\nDONE: epoch%s'%(epoch))
-        if not os.path.exists(save_dir+'checkpoints/epoch'+str(epoch)):
-            graph['saver'].save(sess, save_dir+'checkpoints/epoch'+str(epoch))
+        if not os.path.exists(os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch))):
+            graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch)))
             
     if verbose: print('')
     return training_losses, training_accs
@@ -232,12 +233,12 @@ def predict_labels(X, graph, save_dir,
     # Load from checkpoint corresponding to latest epoch if none given
     if load_weights_file == None and load_epoch == None:
         load_epoch = max([int(f.split('epoch')[1].split('.')[0]) 
-                          for f in os.listdir(save_dir+'checkpoints/') if 'epoch' in f])
+                          for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if 'epoch' in f])
 
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
 
         if load_weights_file == None:
-            graph['saver'].restore(sess, save_dir+'checkpoints/epoch%s'%(load_epoch))
+            graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
         else:
             graph['saver'].restore(sess, load_weights_file)
         
@@ -271,13 +272,13 @@ def recover_curve(X, Y, save_dir,
     """Evaluate performance on a dataset during training"""
     
     list_epochs = np.unique([int(f.split(keyword)[1].split('.')[0]) \
-                             for f in os.listdir(save_dir+'checkpoints/') if keyword in f])
+                             for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if keyword in f])
     accs = np.zeros(len(list_epochs))
     load_weights_file = None
     if verbose: start = time.time()
     for i,epoch in enumerate(list_epochs):
         if keyword is not 'epoch': 
-            load_weights_file='%scheckpoints/%s%s'%(save_dir, keyword ,epoch)
+            load_weights_file= os.path.join(save_dir, 'checkpoints', '%s%s'%(keyword, epoch))
         accs[i] = build_graph_and_predict(X, save_dir,
                                           Y=Y,
                                           num_classes=num_classes,
@@ -309,17 +310,23 @@ def recover_train_and_test_curves(Xtr, Ytr, Xtt, Ytt, save_dir,
     return train_accs,test_accs
 
 
-def get_embedding(X, num_classes, save_dir):
+def get_embedding(X, num_classes, save_dir, batch_size=100, arch=model.alexnet):
     """recovers the representation of the data at the layer before the softmax layer"""
-    tf.reset_default_graph()
-    graph = graph_builder_wrapper(num_classes, save_dir)
-    load_epoch = max([int(f.split('epoch')[1].split('.')[0]) 
-                              for f in os.listdir(save_dir+'checkpoints/') if 'epoch' in f])
-
-    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
-        graph['saver'].restore(sess, save_dir+'checkpoints/epoch%s'%(load_epoch))
-        return sess.run(graph['fc_out'], feed_dict={graph['input_data']: X})
     
+    tf.reset_default_graph()
+    graph = graph_builder_wrapper(num_classes, save_dir, arch=arch)
+    load_epoch = max([int(f.split('epoch')[1].split('.')[0]) 
+                      for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if 'epoch' in f])
+
+    embedding = np.zeros((len(X), num_classes))
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+        graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+        for i in range(0, len(X), batch_size):
+            embedding[i:i+batch_size] = sess.run(graph['fc_out'],
+                                                 feed_dict={graph['input_data']: X[i:i+batch_size]})
+    
+    return embedding
+
     
 def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2, tighter_sn=False):    
     """Check singular value of all weights
@@ -340,12 +347,12 @@ def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2, tighter_sn
     graph = graph_builder_wrapper(num_classes, save_dir, arch=arch)
     
     load_epoch = max([int(f.split('epoch')[1].split('.')[0]) 
-                      for f in os.listdir(save_dir+'checkpoints/') if 'epoch' in f])
+                      for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if 'epoch' in f])
     
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
 
         # Grab all weights
-        graph['saver'].restore(sess, save_dir+'checkpoints/epoch%s'%(load_epoch))
+        graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
         
         for tfvar in tf.get_collection('w_after_sn'):
             if 'weights' in tfvar.name:
@@ -369,3 +376,80 @@ def print_total_number_of_trainable_params():
             variable_parameters *= dim.value
         total_parameters += variable_parameters
     print(total_parameters)           
+
+    
+def extract_curve_tensorboard(tb_log_file, curve='loss'):
+    """Given the name of a tensorboard event file, returns the desired curve"""
+    
+    values = []
+    for e in tf.train.summary_iterator(tb_log_file):
+        for v in e.summary.value:
+            if v.tag == curve:
+                values.append(v.simple_value)
+    return np.array(values)
+
+
+def extract_train_valid_tensorboard(save_dir, curve='accuracy', show_plot=False, only_final_value=False):
+    """For a particular model, grab the tfevents training and validation curves"""
+
+    # get train
+    event_file = sorted(os.listdir(os.path.join(save_dir, 'train')))[0]
+    tb_log_file = os.path.join(save_dir, 'train', event_file)
+    train_values = extract_curve_tensorboard(tb_log_file, curve=curve)
+
+    # get validation
+    event_file = sorted(os.listdir(os.path.join(save_dir, 'validation')))[0]
+    tb_log_file = os.path.join(save_dir, 'validation', event_file)
+    valid_values = extract_curve_tensorboard(tb_log_file, curve=curve)
+
+    if show_plot:
+        plt.figure()
+        plt.plot(train_values, label='training %s'%(curve))
+        plt.plot(valid_values, label='validation %s'%(curve))
+        plt.grid()
+        plt.legend()
+        plt.xlabel('epoch')
+        plt.ylabel(curve)
+        plt.show()
+        
+    if only_final_value:
+        return train_values[-1], valid_values[-1]
+
+    return train_values, valid_values
+
+
+def plot_stacked_hist(v0, v1, labels=None):
+    """Plots two histograms on top of one another"""
+    if labels is None:
+        labels = ['0', '1']
+    bins = np.histogram(np.hstack((v0, v1)), bins=20)[1]
+    data = [v0, v1]
+    plt.hist(data, bins, label=labels, alpha=0.8, color=['r','g'],
+             normed=True, edgecolor='none')
+    plt.legend()
+
+
+def get_margins(X, Y, save_dir, arch=model.alexnet):
+    """Compute margins for X (margin = last layer difference between true label and 
+       highest value that's not the true label)
+    """
+    
+    num_classes = len(np.unique(Y))
+    embeddings = get_embedding(X, num_classes, save_dir, arch=arch)
+#    embeddings = np.exp(embeddings)
+#    embeddings /= np.sum(embeddings, 1).reshape(-1, 1)
+    margins = np.zeros(len(embeddings))
+    
+    print('Sanity check: accuracy is %.5f.'
+          %(np.sum(np.argmax(embeddings, 1) == Y)/float(len(Y))))
+    
+    for i in range(len(embeddings)):
+        if Y[i] == 0:
+            margins[i] = np.max(embeddings[i][1:])
+        elif Y[i] == len(embeddings[0])-1:
+            margins[i] = np.max(embeddings[i][:-1])
+        else:
+            margins[i] = np.max([np.max(embeddings[i][:int(Y[i])]),
+                                np.max(embeddings[i][int(Y[i])+1:])])
+            
+    return margins
