@@ -110,6 +110,13 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
             z = tf.nn.conv2d(u_hat, weights, strides=[1, stride, stride, 1], padding=padding)
             sigma = tf.reduce_sum(tf.multiply(z, v_hat))
             
+            if update_collection is None:
+                with tf.control_dependencies([u.assign(u_hat)]):
+                    w_norm = weights/sigma
+            else:
+                tf.add_to_collection(update_collection, u.assign(u_hat))
+                w_norm = weights/sigma
+            
 #             # We want to get the spectral norm of each of these subfilters and normalize the original 
 #             # w_mat by the sum of these spectral norms (this will guarantee that the linear transformation 
 #             # due to conv2d will remain spectral norm <= 1).             
@@ -132,6 +139,13 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
 #             u_hat = tf.concat(u_hat_list, 0)
 #             sigma = tf.add_n(sigma_list)
 
+#             if update_collection is None:
+#                 with tf.control_dependencies([u.assign(u_hat)]):
+#                     w_norm = tf.reshape(w_mat, w_shape)
+#             else:
+#                 tf.add_to_collection(update_collection, u.assign(u_hat))
+#                 w_norm = tf.reshape(w_mat, w_shape)
+
         # Use the spectral normalization proposed in SN-GAN paper
         else:
             if u is None:
@@ -142,14 +156,14 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
             u_hat, v_hat = power_iteration(u, w_mat, Ip)
             sigma = tf.matmul(tf.matmul(v_hat, w_mat), tf.transpose(u_hat))
             
-        w_mat = w_mat/sigma
+            w_mat = w_mat/sigma
 
-        if update_collection is None:
-            with tf.control_dependencies([u.assign(u_hat)]):
+            if update_collection is None:
+                with tf.control_dependencies([u.assign(u_hat)]):
+                    w_norm = tf.reshape(w_mat, w_shape)
+            else:
+                tf.add_to_collection(update_collection, u.assign(u_hat))
                 w_norm = tf.reshape(w_mat, w_shape)
-        else:
-            tf.add_to_collection(update_collection, u.assign(u_hat))
-            w_norm = tf.reshape(w_mat, w_shape)
 
         tf.add_to_collection('w_after_sn', w_norm)
 
