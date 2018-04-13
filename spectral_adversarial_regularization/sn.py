@@ -96,7 +96,6 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
             scope.reuse_variables()
 
         w_shape = weights.get_shape().as_list()
-        w_mat = tf.reshape(weights, [-1, w_shape[-1]])
         
         # The tighter spectral normalization approach breaks the [f_in, f_out, d_in, d_out] filters
         # into a set of f_in*f_out subfilters each of size d_in*d_out.
@@ -117,7 +116,8 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
 #             if u is None:
 #                 u = tf.get_variable('u', shape=[w_shape[0]*w_shape[1], w_shape[-1]], 
 #                                     initializer=tf.truncated_normal_initializer(), trainable=False)
-            
+
+#             w_mat = tf.reshape(weights, [-1, w_shape[-1]])
 #             w_mat_list = tf.split(w_mat, w_shape[0]*w_shape[1], axis=0)
 #             u_list = tf.split(u, w_shape[0]*w_shape[1], axis=0)
             
@@ -138,6 +138,7 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
                 u = tf.get_variable('u', shape=[1, w_shape[-1]], 
                                     initializer=tf.truncated_normal_initializer(), trainable=False)
 
+            w_mat = tf.reshape(weights, [-1, w_shape[-1]])
             u_hat, v_hat = power_iteration(u, w_mat, Ip)
             sigma = tf.matmul(tf.matmul(v_hat, w_mat), tf.transpose(u_hat))
             

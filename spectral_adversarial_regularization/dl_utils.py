@@ -375,7 +375,7 @@ def print_total_number_of_trainable_params():
         for dim in shape:
             variable_parameters *= dim.value
         total_parameters += variable_parameters
-    print(total_parameters)           
+    print(total_parameters)
 
     
 def extract_curve_tensorboard(tb_log_file, curve='loss'):
