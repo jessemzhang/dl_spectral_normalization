@@ -87,7 +87,8 @@ for wd in wd_list:
     for k in data:
         
         if k in ignore_set:
-            print('Graph unable to fit %s labels with wd < %.2e. Skipping training..'%(wd))
+            print('Graph unable to fit %s labels with wd < %.2e. Skipping..'
+                  %(k, wd))
             continue
 
         Xtr, Ytr, Xtt, Ytt = data[k]
