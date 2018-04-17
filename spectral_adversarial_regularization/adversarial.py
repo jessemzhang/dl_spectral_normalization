@@ -1,7 +1,10 @@
 # Code adapted and modified from https://github.com/openai/cleverhans
 
+import time
+import os
 import numpy as np
 import tensorflow as tf
+import dl_utils
 
 def fgm(x, preds, y=None, eps=0.3, order=np.inf, clip_min=None, clip_max=None):
     """
@@ -63,46 +66,61 @@ def fgm(x, preds, y=None, eps=0.3, order=np.inf, clip_min=None, clip_max=None):
     return adv_x
 
 
-def gen_adv_examples(X,graph,load_dir,batch_size=100,load_epoch=None):
+def gen_adv_examples_in_sess(X, graph, sess, batch_size=100):
+    """Use trained model to generate adversarial examples from X within a session"""
+    
+    adv_x = np.zeros(np.shape(X))
+    for i in range(0,len(X),batch_size):
+        adv_x_ = sess.run(graph['adv_x'], feed_dict={graph['input_data']:X[i:i+batch_size]})
+        adv_x[i:i+batch_size] = adv_x_
+    return adv_x
+    
+
+def gen_adv_examples(X, graph, load_dir, sess=None, batch_size=100, load_epoch=None):
     """Use trained model to generate adversarial examples from X"""
 
     # Load from checkpoint corresponding to latest epoch if none given
     if load_epoch == None:
-        load_epoch = max([int(f.split('epoch')[1].split('.')[0]) for f in os.listdir(load_dir+'checkpoints/') if 'epoch' in f])
-
-    adv_x = np.zeros(np.shape(X))
+        load_epoch = max([int(f.split('epoch')[1].split('.')[0]) 
+                          for f in os.listdir(os.path.join(load_dir, 'checkpoints')) if 'epoch' in f])
 
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
-        graph['saver'].restore(sess,load_dir+'checkpoints/epoch%s'%(load_epoch))
-
-        for i in range(0,len(X),batch_size):
-            adv_x_ = sess.run(graph['adv_x'],feed_dict = {graph['input_data']:X[i:i+batch_size]})
-            adv_x[i:i+batch_size] = adv_x_
-
-    return adv_x
+        graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+        return adv_x(X, graph, sess)
 
 
-def test_net_against_adv_examples(X,Y,load_dir,num_classes,gpu_id,eps,order,verbose=True):
+def test_net_against_adv_examples(X, Y, load_dir, arch,
+                                  eps=0.3, order=np.inf, gpu_id=0, verbose=True):
+    """For a trained network, get accuracy for original and adversarially-perturbed samples"""
+    
+    num_classes = len(np.unique(Y))
     start = time.time()
 
+    # Load from checkpoint corresponding to latest epoch if none given
+    load_epoch = max([int(f.split('epoch')[1].split('.')[0]) 
+                      for f in os.listdir(os.path.join(load_dir, 'checkpoints')) if 'epoch' in f])
+        
     # Use previously fitted network which had achieved 100% training accuracy
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
-        graph = graph_builder_wrapper(num_classes,load_dir,lr_initial=0.01,eps=eps,order=order)
+        graph = dl_utils.graph_builder_wrapper(num_classes, load_dir, eps=eps, order=order, arch=arch)
+        
+        with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+            graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
 
-        # Test on test samples generated in the same way as training samples
-        Yhat = predict_labels(X,graph,load_dir)
+            # Predict labels from unperturbed samples
+            Yhat = dl_utils.predict_labels_in_sess(X, graph, sess)
 
-        # Generate adversarial samples and test
-        X_adv = gen_adv_examples(X,graph,load_dir)
-        Yhat_adv = predict_labels(X_adv,graph,load_dir)
+            # Generate adversarial samples and predict
+            X_adv = gen_adv_examples_in_sess(X, graph, sess)
+            Yhat_adv = dl_utils.predict_labels_in_sess(X_adv, graph, sess)
 
     accs = np.sum(Yhat == Y)/float(len(Y))
     accs_adv = np.sum(Yhat_adv == Y)/float(len(Y))
 
     if verbose:
         print('Acc on examples: %.2f, Acc on adv examples: %.2f (%.3f s elapsed)' \
-              %(accs,accs_adv,time.time()-start))
+              %(accs, accs_adv, time.time()-start))
 
-    return accs,accs_adv
+    return accs, accs_adv
             

@@ -49,8 +49,8 @@ def graph_builder_wrapper(num_classes, save_dir,
     tf.summary.scalar('accuracy', total_acc)
     
     # Add histograms for trainable variables.
-    for var in tf.trainable_variables():
-        tf.summary.histogram(var.op.name, var)
+#    for var in tf.trainable_variables():
+#        tf.summary.histogram(var.op.name, var)
 
     # Merge all the summaries and write them out to save_dir
     merged = tf.summary.merge_all()
@@ -147,8 +147,8 @@ def train(Xtr, Ytr, graph, save_dir,
 
                 feed_dict = {graph['input_data']: x, graph['input_labels']: y}
               
-                summary, training_loss_, training_acc_, _ = \
-                    sess.run([graph['merged'], graph['total_loss'], graph['total_acc'], graph['opt_step']],
+                training_loss_, training_acc_, _ = \
+                    sess.run([graph['total_loss'], graph['total_acc'], graph['opt_step']],
                              feed_dict=feed_dict)
                 training_loss += training_loss_
                 training_acc += training_acc_
@@ -161,6 +161,7 @@ def train(Xtr, Ytr, graph, save_dir,
                           end='')            
             
             if epoch%write_every == 0: # writing to tensorboard
+                summary = sess.run(graph['merged'], feed_dict=feed_dict)
                 graph['train_writer'].add_summary(summary, epoch)
                 
                 if val_set is not None: # make sure to keep the val_set small
@@ -190,7 +191,7 @@ def train(Xtr, Ytr, graph, save_dir,
 
 
 def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet,
-                          wd=0, gpu_id=1, seed=0, verbose=True, **kwargs):
+                          wd=0, gpu_id=0, seed=0, verbose=True, **kwargs):
     """Build tensorflow graph and train"""
     
     tf.reset_default_graph()
@@ -310,17 +311,31 @@ def recover_train_and_test_curves(Xtr, Ytr, Xtt, Ytt, save_dir,
     return train_accs,test_accs
 
 
-def get_embedding(X, num_classes, save_dir, batch_size=100, arch=model.alexnet):
-    """recovers the representation of the data at the layer before the softmax layer"""
+def get_embedding(X, num_classes, save_dir, batch_size=100, arch=model.alexnet, sn_fc=False):
+    """recovers the representation of the data at the layer before the softmax layer
+       Use sn_fc to indicate that last layer (should be named 'fc/weights:0') needs to be
+         spectrally normalized.
+    """
     
     tf.reset_default_graph()
     graph = graph_builder_wrapper(num_classes, save_dir, arch=arch)
     load_epoch = max([int(f.split('epoch')[1].split('.')[0]) 
                       for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if 'epoch' in f])
 
+    if sn_fc:
+        assert 'fc/weights:0' in [v.name for v in tf.global_variables()]
+        W_fc_tensor = [v for v in tf.global_variables() if v.name == 'fc/weights:0'][0]
+
     embedding = np.zeros((len(X), num_classes))
+
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+
+        # spectral normalization on last layer (fully connected)
+        if sn_fc:
+            W_fc = sess.run(W_fc_tensor)
+            sess.run(W_fc_tensor.assign(W_fc/np.linalg.svd(W_fc.T)[1][0]))
+
         for i in range(0, len(X), batch_size):
             embedding[i:i+batch_size] = sess.run(graph['fc_out'],
                                                  feed_dict={graph['input_data']: X[i:i+batch_size]})
@@ -328,20 +343,8 @@ def get_embedding(X, num_classes, save_dir, batch_size=100, arch=model.alexnet):
     return embedding
 
     
-def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2, tighter_sn=False):    
-    """Check singular value of all weights
-       
-       Use the tighter_sn bool to get sum of singular values of individual convolutions
-       represented by bands (important for convolution operations)
-    """
-    
-    def get_s(w):
-        s_total = 0
-        for i in range(w.shape[0]):
-            for j in range(w.shape[1]):
-                s = np.linalg.svd(w[i][j])[1][0]
-                s_total += s
-        print(s_total)
+def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2):    
+    """Check singular value of all weights"""
     
     tf.reset_default_graph()
     graph = graph_builder_wrapper(num_classes, save_dir, arch=arch)
@@ -360,9 +363,6 @@ def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2, tighter_sn
                 print('%30s with shape %15s and top %s sv(s): %s' \
                       %(tfvar.name, np.shape(W), n, 
                         ', '.join(['%.2f'%(i) for i in np.linalg.svd(W.reshape(-1, np.shape(W)[-1]))[1][:n]])))
-                
-                if tighter_sn and 'conv' in tfvar.name:
-                    print('    Sum of singular values across convolutions: %.2f'%(get_s(W)))
                 
 
 def print_total_number_of_trainable_params():
@@ -429,13 +429,13 @@ def plot_stacked_hist(v0, v1, labels=None):
     plt.legend()
 
 
-def get_margins(X, Y, save_dir, arch=model.alexnet):
+def get_margins(X, Y, save_dir, arch=model.alexnet, sn_fc=True):
     """Compute margins for X (margin = last layer difference between true label and 
        highest value that's not the true label)
     """
     
     num_classes = len(np.unique(Y))
-    embeddings = get_embedding(X, num_classes, save_dir, arch=arch)
+    embeddings = get_embedding(X, num_classes, save_dir, arch=arch, sn_fc=sn_fc)
 #    embeddings = np.exp(embeddings)
 #    embeddings /= np.sum(embeddings, 1).reshape(-1, 1)
     margins = np.zeros(len(embeddings))
