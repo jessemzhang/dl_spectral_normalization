@@ -203,7 +203,7 @@ def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet,
 
     if verbose: start = time.time()
     with tf.device("/gpu:%s"%(gpu_id)):
-        if 'checkpoints' not in os.listdir(save_dir):
+        if not os.path.exists(save_dir) or 'checkpoints' not in os.listdir(save_dir):
             graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, wd=wd)
             tr_losses, tr_accs = train(Xtr, Ytr, graph, save_dir, **kwargs)
         else:

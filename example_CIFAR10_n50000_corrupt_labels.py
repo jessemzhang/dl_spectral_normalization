@@ -13,7 +13,7 @@ from get_cifar10 import get_cifar10_dataset
 from spectral_adversarial_regularization.models import alexnet as model
 
 arch_name = 'alexnet'
-model = model.alexnet
+arch = model.alexnet
 wd = 1.0
 
 maindir = 'save_weights_n50000_label_corrupt_%s_wd%s/'%(arch_name, wd)
@@ -33,7 +33,7 @@ for p_corrupt_label in [10, 20, 30, 40, 50, 60, 70, 80, 90]:
     save_dir = os.path.join(maindir, '%s_p%s/'%(arch_name, p_corrupt_label))
     if retrain: os.system('rm -rf %s'%(save_dir))
     _ = dl_utils.build_graph_and_train(Xtr, Ytr, save_dir, num_classes,
-                                       arch=model,
+                                       arch=arch,
                                        num_epochs=num_epochs,
                                        save_every=save_every,
                                        val_set=val_set,
