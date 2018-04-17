@@ -32,10 +32,12 @@ def graph_builder_wrapper(num_classes, save_dir,
                           eps=0.3,
                           order=np.inf,
                           max_save=200,
-                          arch=model.alexnet):
+                          arch=model.alexnet,
+                          update_collection=None):
     """Wrapper for building graph and accessing all relevant ops/placeholders"""
     
-    input_data, input_labels, fc_out = arch(num_classes, wd=wd)
+    input_data, input_labels, fc_out = arch(num_classes, wd=wd,
+                                            update_collection=update_collection)
     saver = tf.train.Saver(max_to_keep=max_save)
     
     # Loss and optimizer
@@ -201,10 +203,11 @@ def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet,
 
     if verbose: start = time.time()
     with tf.device("/gpu:%s"%(gpu_id)):
-        graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, wd=wd)
         if 'checkpoints' not in os.listdir(save_dir):
+            graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, wd=wd)
             tr_losses, tr_accs = train(Xtr, Ytr, graph, save_dir, **kwargs)
         else:
+            graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, wd=wd, update_collection='_')
             if verbose:
                 print('Model already exists.. loading trained model..')
         Ytrhat = predict_labels(Xtr, graph, save_dir)
@@ -225,6 +228,12 @@ def predict_labels_in_sess(X, graph, sess, batch_size=100):
     return labels
 
 
+def latest_epoch(save_dir):
+    """Grabs int corresponding to last epoch of weights saved in save_dir"""
+    return max([int(f.split('epoch')[1].split('.')[0]) 
+                for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if 'epoch' in f])
+
+
 def predict_labels(X, graph, save_dir, 
                    batch_size=100,
                    load_epoch=None,
@@ -233,8 +242,7 @@ def predict_labels(X, graph, save_dir,
     
     # Load from checkpoint corresponding to latest epoch if none given
     if load_weights_file == None and load_epoch == None:
-        load_epoch = max([int(f.split('epoch')[1].split('.')[0]) 
-                          for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if 'epoch' in f])
+        load_epoch = latest_epoch(save_dir)
 
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
 
@@ -247,6 +255,7 @@ def predict_labels(X, graph, save_dir,
 
 
 def build_graph_and_predict(X, save_dir,
+                            arch=model.alexnet,
                             Y=None,
                             num_classes=10,
                             gpu_id=0,
@@ -256,7 +265,7 @@ def build_graph_and_predict(X, save_dir,
     
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
-        graph = graph_builder_wrapper(num_classes, save_dir, lr_initial=0.01)
+        graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, update_collection='_')
         Yhat = predict_labels(X, graph, save_dir,
                               load_epoch=load_epoch,
                               load_weights_file=load_weights_file)
@@ -311,6 +320,16 @@ def recover_train_and_test_curves(Xtr, Ytr, Xtt, Ytt, save_dir,
     return train_accs,test_accs
 
 
+def get_embedding_in_sess(X, graph, sess, batch_size=100):
+    """Gets embedding (last layer output) within a session"""
+    num_classes = graph['fc_out'].shape.as_list()[1]
+    embedding = np.zeros((len(X), num_classes))
+    for i in range(0, len(X), batch_size):
+        embedding_ = sess.run(graph['fc_out'], feed_dict={graph['input_data']: X[i:i+batch_size]})
+        embedding[i:i+batch_size] = embedding_
+    return embedding
+
+
 def get_embedding(X, num_classes, save_dir, batch_size=100, arch=model.alexnet, sn_fc=False):
     """recovers the representation of the data at the layer before the softmax layer
        Use sn_fc to indicate that last layer (should be named 'fc/weights:0') needs to be
@@ -318,15 +337,12 @@ def get_embedding(X, num_classes, save_dir, batch_size=100, arch=model.alexnet, 
     """
     
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(num_classes, save_dir, arch=arch)
-    load_epoch = max([int(f.split('epoch')[1].split('.')[0]) 
-                      for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if 'epoch' in f])
+    graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, update_collection='_')
+    load_epoch = latest_epoch(save_dir)
 
     if sn_fc:
         assert 'fc/weights:0' in [v.name for v in tf.global_variables()]
         W_fc_tensor = [v for v in tf.global_variables() if v.name == 'fc/weights:0'][0]
-
-    embedding = np.zeros((len(X), num_classes))
 
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
@@ -336,21 +352,16 @@ def get_embedding(X, num_classes, save_dir, batch_size=100, arch=model.alexnet, 
             W_fc = sess.run(W_fc_tensor)
             sess.run(W_fc_tensor.assign(W_fc/np.linalg.svd(W_fc.T)[1][0]))
 
-        for i in range(0, len(X), batch_size):
-            embedding[i:i+batch_size] = sess.run(graph['fc_out'],
-                                                 feed_dict={graph['input_data']: X[i:i+batch_size]})
-    
-    return embedding
+        return get_embedding_in_sess(X, graph, sess, batch_size=batch_size)
 
     
 def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2):    
     """Check singular value of all weights"""
     
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(num_classes, save_dir, arch=arch)
+    graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, update_collection='_')
     
-    load_epoch = max([int(f.split('epoch')[1].split('.')[0]) 
-                      for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if 'epoch' in f])
+    load_epoch = latest_epoch(save_dir)
     
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
 

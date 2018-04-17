@@ -6,6 +6,8 @@
 #    # Update ops at the end
 #    for update_op in spectral_norm_update_ops:
 #        sess.run(update_op)
+#
+# Setting update_collection is important for grabbing weights from the graph!! 
 
 import tensorflow as tf
 from operator import mul

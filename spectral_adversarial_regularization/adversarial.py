@@ -97,14 +97,14 @@ def test_net_against_adv_examples(X, Y, load_dir, arch,
     start = time.time()
 
     # Load from checkpoint corresponding to latest epoch if none given
-    load_epoch = max([int(f.split('epoch')[1].split('.')[0]) 
-                      for f in os.listdir(os.path.join(load_dir, 'checkpoints')) if 'epoch' in f])
+    load_epoch = dl_utils.latest_epoch(save_dir)
         
     # Use previously fitted network which had achieved 100% training accuracy
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
-        graph = dl_utils.graph_builder_wrapper(num_classes, load_dir, eps=eps, order=order, arch=arch)
-        
+        graph = dl_utils.graph_builder_wrapper(num_classes, load_dir, eps=eps, order=order,
+                                               arch=arch, update_collection='_')
+
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
             graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
 
