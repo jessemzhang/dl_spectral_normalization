@@ -110,7 +110,7 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
 
             u_hat, v_hat = power_iteration_conv(u, weights, Ip)
             z = tf.nn.conv2d(u_hat, weights, strides=[1, stride, stride, 1], padding=padding)
-            sigma = tf.reduce_sum(tf.multiply(z, v_hat))
+            sigma = tf.maximum(tf.reduce_sum(tf.multiply(z, v_hat)), 1)
             
             if update_collection is None:
                 with tf.control_dependencies([u.assign(u_hat)]):
@@ -118,35 +118,6 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
             else:
                 tf.add_to_collection(update_collection, u.assign(u_hat))
                 w_norm = weights/sigma
-            
-#             # We want to get the spectral norm of each of these subfilters and normalize the original 
-#             # w_mat by the sum of these spectral norms (this will guarantee that the linear transformation 
-#             # due to conv2d will remain spectral norm <= 1).             
-#             if u is None:
-#                 u = tf.get_variable('u', shape=[w_shape[0]*w_shape[1], w_shape[-1]], 
-#                                     initializer=tf.truncated_normal_initializer(), trainable=False)
-
-#             w_mat = tf.reshape(weights, [-1, w_shape[-1]])
-#             w_mat_list = tf.split(w_mat, w_shape[0]*w_shape[1], axis=0)
-#             u_list = tf.split(u, w_shape[0]*w_shape[1], axis=0)
-            
-#             sigma_list = []
-#             u_hat_list = []
-
-#             for i, w in enumerate(w_mat_list):
-#                 u_hat_, v_hat_ = power_iteration(u_list[i], w, Ip)
-#                 u_hat_list.append(u_hat_)
-#                 sigma_list.append(tf.matmul(tf.matmul(v_hat_, w), tf.transpose(u_hat_)))
-                
-#             u_hat = tf.concat(u_hat_list, 0)
-#             sigma = tf.add_n(sigma_list)
-
-#             if update_collection is None:
-#                 with tf.control_dependencies([u.assign(u_hat)]):
-#                     w_norm = tf.reshape(w_mat, w_shape)
-#             else:
-#                 tf.add_to_collection(update_collection, u.assign(u_hat))
-#                 w_norm = tf.reshape(w_mat, w_shape)
 
         # Use the spectral normalization proposed in SN-GAN paper
         else:
@@ -156,7 +127,7 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
 
             w_mat = tf.reshape(weights, [-1, w_shape[-1]])
             u_hat, v_hat = power_iteration(u, w_mat, Ip)
-            sigma = tf.matmul(tf.matmul(v_hat, w_mat), tf.transpose(u_hat))
+            sigma = tf.maximum(tf.matmul(tf.matmul(v_hat, w_mat), tf.transpose(u_hat)), 1)
             
             w_mat = w_mat/sigma
 

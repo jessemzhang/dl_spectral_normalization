@@ -89,15 +89,12 @@ def gen_adv_examples(X, graph, load_dir, sess=None, batch_size=100, load_epoch=N
         return adv_x(X, graph, sess)
 
 
-def test_net_against_adv_examples(X, Y, load_dir, arch,
+def test_net_against_adv_examples(X, Y, load_dir, arch, d=None,
                                   eps=0.3, order=np.inf, gpu_id=0, verbose=True):
-    """For a trained network, get accuracy for original and adversarially-perturbed samples"""
+    """For a trained network, generate and get accuracy for adversarially-perturbed samples"""
     
     num_classes = len(np.unique(Y))
     start = time.time()
-
-    # Load from checkpoint corresponding to latest epoch if none given
-    load_epoch = dl_utils.latest_epoch(save_dir)
         
     # Use previously fitted network which had achieved 100% training accuracy
     tf.reset_default_graph()
@@ -106,21 +103,23 @@ def test_net_against_adv_examples(X, Y, load_dir, arch,
                                                arch=arch, update_collection='_')
 
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
-            graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+            if d is None:
+                load_epoch = dl_utils.latest_epoch(load_dir)
+                graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
 
-            # Predict labels from unperturbed samples
-            Yhat = dl_utils.predict_labels_in_sess(X, graph, sess)
-
+            else:
+                for v in tf.trainable_variables():
+                    sess.run(v.assign(d[v.name]))
+            
             # Generate adversarial samples and predict
             X_adv = gen_adv_examples_in_sess(X, graph, sess)
             Yhat_adv = dl_utils.predict_labels_in_sess(X_adv, graph, sess)
 
-    accs = np.sum(Yhat == Y)/float(len(Y))
     accs_adv = np.sum(Yhat_adv == Y)/float(len(Y))
 
     if verbose:
-        print('Acc on examples: %.2f, Acc on adv examples: %.2f (%.3f s elapsed)' \
-              %(accs, accs_adv, time.time()-start))
+        print('Acc on adv examples: %.2f (%.3f s elapsed)' \
+              %(accs_adv, time.time()-start))
 
-    return accs, accs_adv
+    return accs_adv
             

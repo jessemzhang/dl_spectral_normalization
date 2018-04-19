@@ -203,7 +203,7 @@ def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet,
 
     if verbose: start = time.time()
     with tf.device("/gpu:%s"%(gpu_id)):
-        if 'checkpoints' not in os.listdir(save_dir):
+        if not os.path.exists(save_dir) or 'checkpoints' not in os.listdir(save_dir):
             graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, wd=wd)
             tr_losses, tr_accs = train(Xtr, Ytr, graph, save_dir, **kwargs)
         else:
@@ -343,25 +343,28 @@ def get_embedding(X, num_classes, save_dir, batch_size=100, arch=model.alexnet, 
     if sn_fc:
         assert 'fc/weights:0' in [v.name for v in tf.global_variables()]
         W_fc_tensor = [v for v in tf.global_variables() if v.name == 'fc/weights:0'][0]
+        b_fc_tensor = [v for v in tf.global_variables() if v.name == 'fc/bias:0'][0]
 
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
 
         # spectral normalization on last layer (fully connected)
         if sn_fc:
-            W_fc = sess.run(W_fc_tensor)
-            sess.run(W_fc_tensor.assign(W_fc/np.linalg.svd(W_fc.T)[1][0]))
+            W_fc, b_fc = sess.run([W_fc_tensor, b_fc_tensor])
+            sigma = np.linalg.svd(W_fc.T)[1][0]
+            sess.run([W_fc_tensor.assign(W_fc/sigma), b_fc_tensor.assign(b_fc/sigma)])
 
         return get_embedding_in_sess(X, graph, sess, batch_size=batch_size)
 
     
-def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2):    
+def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2, load_epoch=None):    
     """Check singular value of all weights"""
     
     tf.reset_default_graph()
     graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, update_collection='_')
     
-    load_epoch = latest_epoch(save_dir)
+    if load_epoch is None:
+        load_epoch = latest_epoch(save_dir)
     
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
 
@@ -464,3 +467,24 @@ def get_margins(X, Y, save_dir, arch=model.alexnet, sn_fc=True):
                                 np.max(embeddings[i][int(Y[i])+1:])])
             
     return margins
+
+
+def get_sn_weights(num_classes, save_dir, arch, print_svs=False):    
+    """Grab all weights from spectrally normalized graph"""
+    
+    load_epoch = latest_epoch(save_dir)
+    tf.reset_default_graph()
+    graph = graph_builder_wrapper(num_classes, './temp/', arch=arch, update_collection='_')
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+        graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+        d = {v.name:sess.run(v) for v in tf.trainable_variables()}
+        for v in tf.get_collection('w_after_sn'):
+            key = v.name.split('_SN')[0]+':0'
+            d[key] = sess.run(v)
+            if print_svs:
+                dim = d[key].shape[-1]
+                print('%30s with shape %15s and top 2 sv(s): %s' \
+                      %(key, np.shape(d[key]),
+                        ', '.join(['%.2f'%(i) for i in np.linalg.svd(d[key].reshape(-1, dim))[1][:2]])))
+
+    return d
