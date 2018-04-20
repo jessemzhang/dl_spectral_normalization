@@ -33,10 +33,11 @@ def graph_builder_wrapper(num_classes, save_dir,
                           order=np.inf,
                           max_save=200,
                           arch=model.alexnet,
-                          update_collection=None):
+                          update_collection=None,
+                          beta=1.):
     """Wrapper for building graph and accessing all relevant ops/placeholders"""
     
-    input_data, input_labels, fc_out = arch(num_classes, wd=wd,
+    input_data, input_labels, fc_out = arch(num_classes, wd=wd, beta=beta,
                                             update_collection=update_collection)
     saver = tf.train.Saver(max_to_keep=max_save)
     
@@ -193,7 +194,7 @@ def train(Xtr, Ytr, graph, save_dir,
 
 
 def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet,
-                          wd=0, gpu_id=0, seed=0, verbose=True, **kwargs):
+                          wd=0, gpu_id=0, seed=0, verbose=True, beta=1., **kwargs):
     """Build tensorflow graph and train"""
     
     tf.reset_default_graph()

@@ -18,7 +18,7 @@ def l2_norm(input_x, epsilon=1e-12):
     return input_x_norm
 
 
-def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=False, u_width=28,
+def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=False, u_width=28, beta=1.,
            padding='SAME', spectral_norm=True, update_collection=None, xavier=False, bn=False):
     """2D convolution layer with spectral normalization option"""
     
@@ -33,7 +33,7 @@ def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=False
         bias = tf.get_variable('bias', output_len, tf.float32, initializer=tf.constant_initializer(0))
         if spectral_norm:
             weights = weights_spectral_norm(weights, update_collection=update_collection,
-                                            tighter_sn=tighter_sn, u_width=u_width, 
+                                            tighter_sn=tighter_sn, u_width=u_width, beta=beta,
                                             u_depth=kernel_size[-2], stride=stride, padding=padding)
         conv = tf.nn.conv2d(input_x, weights, strides=[1, stride, stride, 1], padding=padding)
         conv = tf.nn.bias_add(conv, bias)
@@ -43,7 +43,7 @@ def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=False
 
 
 def linear(input_x, output_size, scope_name='linear', spectral_norm=True, 
-           update_collection=None, l2_norm=False, wd=0, xavier=False):
+           update_collection=None, l2_norm=False, wd=0, xavier=False, beta=1.):
     """Fully connected linear layer with spectral normalization and weight decay options"""
         
     shape = input_x.get_shape().as_list()
@@ -68,13 +68,13 @@ def linear(input_x, output_size, scope_name='linear', spectral_norm=True,
             tf.add_to_collection('losses', weight_decay)
         bias = tf.get_variable('bias', output_size, tf.float32, initializer=tf.constant_initializer(0))        
         if spectral_norm:
-            weights = weights_spectral_norm(weights, update_collection=update_collection)
+            weights = weights_spectral_norm(weights, update_collection=update_collection, beta=beta)
         output = tf.matmul(flat_x, weights) + bias
         return output
 
 
 def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
-                          reuse=False, name='weights_SN',
+                          reuse=False, name='weights_SN', beta=1.,
                           tighter_sn=False, u_width=28, u_depth=3, stride=1, padding='SAME'):
     """Perform spectral normalization"""
 
@@ -110,7 +110,7 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
 
             u_hat, v_hat = power_iteration_conv(u, weights, Ip)
             z = tf.nn.conv2d(u_hat, weights, strides=[1, stride, stride, 1], padding=padding)
-            sigma = tf.maximum(tf.reduce_sum(tf.multiply(z, v_hat)), 1)
+            sigma = tf.maximum(tf.reduce_sum(tf.multiply(z, v_hat))/beta, 1)
             
             if update_collection is None:
                 with tf.control_dependencies([u.assign(u_hat)]):
@@ -127,7 +127,7 @@ def weights_spectral_norm(weights, u=None, Ip=1, update_collection=None,
 
             w_mat = tf.reshape(weights, [-1, w_shape[-1]])
             u_hat, v_hat = power_iteration(u, w_mat, Ip)
-            sigma = tf.maximum(tf.matmul(tf.matmul(v_hat, w_mat), tf.transpose(u_hat)), 1)
+            sigma = tf.maximum(tf.matmul(tf.matmul(v_hat, w_mat), tf.transpose(u_hat))/beta, 1)
             
             w_mat = w_mat/sigma
 
