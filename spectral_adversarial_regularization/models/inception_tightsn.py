@@ -45,7 +45,7 @@ def downsample(input_x, input_filters, ch3_filters, spectral_norm=True,
         return tf.concat([ch3_output, pool_output], axis=-1)
 
 
-def inception_sn(NUM_CLASSES, wd=0, update_collection=None):
+def inception_sn(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     """Mini-inception architecture with spectral normalization on all layers"""
 
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
@@ -70,7 +70,7 @@ def inception_sn(NUM_CLASSES, wd=0, update_collection=None):
     return input_data, input_labels, fc
 
 
-def inception_sar(NUM_CLASSES, wd=0, update_collection=None):
+def inception_sar(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     """Mini-inception architecture with spectral adversarial regularization"""
 
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')

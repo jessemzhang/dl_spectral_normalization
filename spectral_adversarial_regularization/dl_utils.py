@@ -84,6 +84,7 @@ def graph_builder_wrapper(num_classes, save_dir,
 
 def train(Xtr, Ytr, graph, save_dir,
           val_set=None,
+          adv_robustness=False,
           lr_initial=0.01,
           seed=0,
           num_epochs=100,
@@ -105,6 +106,9 @@ def train(Xtr, Ytr, graph, save_dir,
             save_every = num_epochs/100
         else:
             save_every = 1
+    
+    if adv_robustness:
+        delta = tf.Variable(tf.zeros(shape=[batch_size, 28, 28, 3]))
     
     start = time.time()
     training_losses, training_accs = [], []
@@ -147,8 +151,21 @@ def train(Xtr, Ytr, graph, save_dir,
             for i in range(0, end, batch_size):
 
                 x, y = Xtr_[i:i+batch_size], Ytr_[i:i+batch_size]
-
-                feed_dict = {graph['input_data']: x, graph['input_labels']: y}
+                
+                if adv_robustness:
+                    adv_grad_op = tf.gradients(graph['loss'], graph['input_data']) # or should this be graph['fc_out']?
+                
+                    def delta_fixed_point(Ip=15, lambda_coef=0.5):
+                        delta = np.zeros(np.shape(x))
+                        for _ in range(Ip):
+                            delta = lambda_coeff*sess.run(adv_grad_op,
+                                                          feed_dict={graph['input_data']:x-delta})
+                        return delta
+                    
+                    delta = delta_fixed_point()
+                    feed_dict = {graph['input_data']: x-delta, graph['input_labels']: y}
+                else:
+                    feed_dict = {graph['input_data']: x, graph['input_labels']: y}
               
                 training_loss_, training_acc_, _ = \
                     sess.run([graph['total_loss'], graph['total_acc'], graph['opt_step']],
@@ -358,11 +375,11 @@ def get_embedding(X, num_classes, save_dir, batch_size=100, arch=model.alexnet, 
         return get_embedding_in_sess(X, graph, sess, batch_size=batch_size)
 
     
-def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2, load_epoch=None):    
+def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2, load_epoch=None, beta=1.):    
     """Check singular value of all weights"""
     
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, update_collection='_')
+    graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, update_collection='_', beta=beta)
     
     if load_epoch is None:
         load_epoch = latest_epoch(save_dir)
