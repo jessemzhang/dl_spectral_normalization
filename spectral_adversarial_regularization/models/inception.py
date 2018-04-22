@@ -44,12 +44,9 @@ def downsample(input_x, input_filters, ch3_filters, spectral_norm=True,
         return tf.concat([ch3_output, pool_output], axis=-1)
 
 
-def inception(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
+def inception(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     """Mini-inception architecture (note that we do batch norm in absence of spectral norm)"""
 
-    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
-    input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
-    
     layer1 = tf.nn.relu(sn.conv2d(input_data, [3, 3, 3, 96], scope_name='conv1', spectral_norm=False))
     layer2 = incept(layer1, 96, 32, 32, scope_name='incept2', spectral_norm=False)
     layer3 = incept(layer2, 32+32, 32, 48, scope_name='incept3', spectral_norm=False)
@@ -66,15 +63,12 @@ def inception(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     
     fc = sn.linear(layer12, NUM_CLASSES, scope_name='fc', spectral_norm=False, xavier=True)
         
-    return input_data, input_labels, fc
+    return fc
 
 
-def inception_nobn(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
+def inception_nobn(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     """Mini-inception architecture (no spectral or batch norm)"""
 
-    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
-    input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
-    
     layer1 = tf.nn.relu(sn.conv2d(input_data, [3, 3, 3, 96], scope_name='conv1', spectral_norm=False, bn=False))
     layer2 = incept(layer1, 96, 32, 32, scope_name='incept2', spectral_norm=False, bn=False)
     layer3 = incept(layer2, 32+32, 32, 48, scope_name='incept3', spectral_norm=False, bn=False)
@@ -91,15 +85,12 @@ def inception_nobn(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     
     fc = sn.linear(layer12, NUM_CLASSES, scope_name='fc', spectral_norm=False, xavier=True)
         
-    return input_data, input_labels, fc
+    return fc
 
 
-def inception_sn(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
+def inception_sn(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     """Mini-inception architecture with spectral normalization on all layers"""
 
-    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
-    input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
-    
     layer1 = tf.nn.relu(sn.conv2d(input_data, [3, 3, 3, 96], scope_name='conv1', update_collection=update_collection, beta=beta))
     layer2 = incept(layer1, 96, 32, 32, scope_name='incept2', update_collection=update_collection, beta=beta)
     layer3 = incept(layer2, 32+32, 32, 48, scope_name='incept3', update_collection=update_collection, beta=beta)
@@ -116,15 +107,12 @@ def inception_sn(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     
     fc = sn.linear(layer12, NUM_CLASSES, scope_name='fc', xavier=True, update_collection=update_collection, beta=beta)
         
-    return input_data, input_labels, fc
+    return fc
 
 
-def inception_sar(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
+def inception_sar(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     """Mini-inception architecture with spectral adversarial regularization"""
 
-    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
-    input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
-    
     layer1 = tf.nn.relu(sn.conv2d(input_data, [3, 3, 3, 96], scope_name='conv1', update_collection=update_collection, beta=beta))
     layer2 = incept(layer1, 96, 32, 32, scope_name='incept2', update_collection=update_collection, beta=beta)
     layer3 = incept(layer2, 32+32, 32, 48, scope_name='incept3', update_collection=update_collection, beta=beta)
@@ -142,4 +130,4 @@ def inception_sar(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     fc = sn.linear(layer12, NUM_CLASSES, scope_name='fc', spectral_norm=False,
                    xavier=True, wd=wd, l2_norm=True)
         
-    return input_data, input_labels, fc
+    return fc

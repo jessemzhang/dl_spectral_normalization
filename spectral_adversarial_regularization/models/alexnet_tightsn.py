@@ -6,15 +6,12 @@ import numpy as np
 from .. import sn
 
 
-def alexnet_sn(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
+def alexnet_sn(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     """AlexNet architecture with spectral normalization on all layers
         two [convolution 5x5 -> max-pool 3x3 -> local-response-normalization] modules 
         followed by two fully connected layers with 384 and 192 hidden units, respectively. 
         Finally a NUM_CLASSES-way linear layer is used for prediction
     """
-    
-    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
-    input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
     
     conv = sn.conv2d(input_data, [5, 5, 3, 96], scope_name='conv1', tighter_sn=True, update_collection=update_collection, beta=beta)
     conv1 = tf.nn.relu(conv, name='conv1_relu')
@@ -35,10 +32,10 @@ def alexnet_sn(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
 
     fc = sn.linear(lin2, NUM_CLASSES, scope_name='fc', update_collection=update_collection, beta=beta)
         
-    return input_data, input_labels, fc
+    return fc
 
 
-def alexnet_sar(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
+def alexnet_sar(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     """AlexNet architecture with spectral adversarial regularization
         two [convolution 5x5 -> max-pool 3x3 -> local-response-normalization] modules 
         followed by two fully connected layers with 384 and 192 hidden units, respectively. 
@@ -67,4 +64,4 @@ def alexnet_sar(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
 
     fc = sn.linear(lin2, NUM_CLASSES, scope_name='fc', spectral_norm=False, wd=wd, l2_norm=True)
         
-    return input_data, input_labels, fc
+    return fc

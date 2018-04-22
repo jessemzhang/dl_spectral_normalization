@@ -8,12 +8,9 @@ import tensorflow as tf
 import numpy as np
 from .. import sn
 
-def vgg(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
+def vgg(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     """VGG architecture"""
 
-    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
-    input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
-    
     layer1 = tf.nn.relu(sn.conv2d(input_data, [3, 3, 3, 64], scope_name='conv1', bn=True, xavier=True, spectral_norm=False))
     layer2 = tf.nn.relu(sn.conv2d(layer1, [3, 3, 64, 64], scope_name='conv2', bn=True, xavier=True, spectral_norm=False))
     layer3 = tf.nn.max_pool(layer2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='VALID', name='pool3')
@@ -40,14 +37,11 @@ def vgg(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     layer14 = sn.linear(layer13, 512, scope_name='linear14', xavier=True, spectral_norm=False)
     fc = sn.linear(layer14, NUM_CLASSES, scope_name='fc', xavier=True, spectral_norm=False)
 
-    return input_data, input_labels, fc
+    return fc
 
 
-def vgg_sn(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
+def vgg_sn(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     """VGG architecture with spectral normalization on all layers"""
-    
-    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
-    input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
     
     layer1 = tf.nn.relu(sn.conv2d(input_data, [3, 3, 3, 64], scope_name='conv1', xavier=True,
                                   update_collection=update_collection, beta=beta))
@@ -83,14 +77,11 @@ def vgg_sn(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     layer14 = sn.linear(layer13, 512, scope_name='linear14', xavier=True, update_collection=update_collection, beta=beta)
     fc = sn.linear(layer14, NUM_CLASSES, scope_name='fc', xavier=True, update_collection=update_collection, beta=beta)
 
-    return input_data, input_labels, fc
+    return fc
 
 
-def vgg_sar(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
+def vgg_sar(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     """VGG architecture with spectral adversarial regularization"""
-    
-    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
-    input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
     
     layer1 = tf.nn.relu(sn.conv2d(input_data, [3, 3, 3, 64], scope_name='conv1', xavier=True,
                                   update_collection=update_collection, beta=beta))
@@ -127,4 +118,4 @@ def vgg_sar(NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     fc = sn.linear(layer14, NUM_CLASSES, scope_name='fc', spectral_norm=False,
                    xavier=True, wd=wd, l2_norm=True)
 
-    return input_data, input_labels, fc
+    return fc

@@ -20,6 +20,7 @@ models = [
 ]
 wd_list = [0, 4e-2, 4e-1, 1, 4]
 beta_list = [8.0, 4.0, 2.0, 0.5, 1.0]
+adv_robustness = False
 
 maindir = 'save_weights_max1sn/%s/'%(arch_name)
 gpu_prop = 0.2
@@ -57,7 +58,8 @@ for k in data:
                                        save_every=save_every,
                                        val_set=val_set,
                                        early_stop_acc=0.995,
-                                       gpu_prop=gpu_prop)
+                                       gpu_prop=gpu_prop,
+                                       adv_robustness=adv_robustness)
 
 
 # ------------------------------------------------------------------------------
@@ -80,7 +82,8 @@ for beta in beta_list:
                                            val_set=val_set,
                                            early_stop_acc=0.995,
                                            gpu_prop=gpu_prop,
-                                           beta=beta)
+                                           beta=beta,
+                                           adv_robustness=adv_robustness)
 
 
 # ------------------------------------------------------------------------------
@@ -114,7 +117,8 @@ for beta in beta_list:
                                                     val_set=val_set,
                                                     early_stop_acc=0.995,
                                                     gpu_prop=gpu_prop,
-                                                    beta=beta)
+                                                    beta=beta,
+                                                    adv_robustness=adv_robustness)
 
             if tr_acc < 0.22:
                 ignore_set.add(k)

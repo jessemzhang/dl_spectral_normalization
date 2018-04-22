@@ -37,8 +37,12 @@ def graph_builder_wrapper(num_classes, save_dir,
                           beta=1.):
     """Wrapper for building graph and accessing all relevant ops/placeholders"""
     
-    input_data, input_labels, fc_out = arch(num_classes, wd=wd, beta=beta,
-                                            update_collection=update_collection)
+    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
+    input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
+    
+    with tf.variable_scope('architecture'): 
+        fc_out = arch(input_data, num_classes, wd=wd, beta=beta, update_collection=update_collection)
+        
     saver = tf.train.Saver(max_to_keep=max_save)
     
     # Loss and optimizer
@@ -47,6 +51,20 @@ def graph_builder_wrapper(num_classes, save_dir,
     opt_step = tf.train.MomentumOptimizer(learning_rate, 0.9).minimize(total_loss)
     tf.summary.scalar('loss', total_loss)
     
+    # Adv robustness using Duchi et al.'s ICLR 2018 result
+    delta = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='delta')
+
+    def delta_fixed_point(delta, Ip=15, lambda_coef=0.5):
+        for _ in range(Ip):
+            with tf.variable_scope('architecture', reuse=True):
+                adv_fc_out = arch(input_data-delta, num_classes, wd=wd, beta=beta, update_collection='_')
+
+            adv_loss = -loss(adv_fc_out, input_labels)
+            delta = lambda_coef*tf.gradients(adv_loss, delta)[0]
+        return delta
+
+    delta_opt = delta_fixed_point(delta)
+
     # Accuracy
     total_acc = acc(fc_out, input_labels)
     tf.summary.scalar('accuracy', total_acc)
@@ -70,6 +88,8 @@ def graph_builder_wrapper(num_classes, save_dir,
         total_loss = total_loss,
         total_acc = total_acc,
         fc_out = fc_out,
+        delta = delta,
+        delta_opt = delta_opt,
         opt_step = opt_step,
         learning_rate = learning_rate,
         merged = merged,
@@ -107,8 +127,8 @@ def train(Xtr, Ytr, graph, save_dir,
         else:
             save_every = 1
     
-    if adv_robustness:
-        delta = tf.Variable(tf.zeros(shape=[batch_size, 28, 28, 3]))
+#     if adv_robustness:
+#         delta = tf.Variable(tf.zeros(shape=[batch_size, 28, 28, 3]))
     
     start = time.time()
     training_losses, training_accs = [], []
@@ -151,22 +171,14 @@ def train(Xtr, Ytr, graph, save_dir,
             for i in range(0, end, batch_size):
 
                 x, y = Xtr_[i:i+batch_size], Ytr_[i:i+batch_size]
-                
+
                 if adv_robustness:
-                    adv_grad_op = tf.gradients(graph['loss'], graph['input_data']) # or should this be graph['fc_out']?
+                    d =  sess.run(graph['delta_opt'], feed_dict={graph['input_data']: x,
+                                                                 graph['input_labels']: y,
+                                                                 graph['delta']: np.zeros(np.shape(x))})
+                    x -= d
                 
-                    def delta_fixed_point(Ip=15, lambda_coef=0.5):
-                        delta = np.zeros(np.shape(x))
-                        for _ in range(Ip):
-                            delta = lambda_coeff*sess.run(adv_grad_op,
-                                                          feed_dict={graph['input_data']:x-delta})
-                        return delta
-                    
-                    delta = delta_fixed_point()
-                    feed_dict = {graph['input_data']: x-delta, graph['input_labels']: y}
-                else:
-                    feed_dict = {graph['input_data']: x, graph['input_labels']: y}
-              
+                feed_dict = {graph['input_data']: x, graph['input_labels']: y}
                 training_loss_, training_acc_, _ = \
                     sess.run([graph['total_loss'], graph['total_acc'], graph['opt_step']],
                              feed_dict=feed_dict)
