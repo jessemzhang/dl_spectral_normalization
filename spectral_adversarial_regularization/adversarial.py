@@ -71,7 +71,8 @@ def gen_adv_examples_in_sess(X, graph, sess, batch_size=100):
     
     adv_x = np.zeros(np.shape(X))
     for i in range(0,len(X),batch_size):
-        adv_x_ = sess.run(graph['adv_x'], feed_dict={graph['input_data']:X[i:i+batch_size]})
+        adv_x_ = sess.run(graph['adv_x'], feed_dict = {graph['input_data']:X[i:i+batch_size], 
+                                                       graph['delta']:np.zeros(np.shape(X[i:i+batch_size]))})
         adv_x[i:i+batch_size] = adv_x_
     return adv_x
     

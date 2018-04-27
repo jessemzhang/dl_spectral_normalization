@@ -42,9 +42,6 @@ def alexnet_sar(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
         Finally a NUM_CLASSES-way linear layer is used for prediction
     """
     
-    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
-    input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
-    
     conv = sn.conv2d(input_data, [5, 5, 3, 96], scope_name='conv1', tighter_sn=True, update_collection=update_collection, beta=beta)
     conv1 = tf.nn.relu(conv, name='conv1_relu')
     pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],

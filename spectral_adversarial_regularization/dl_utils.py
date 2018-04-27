@@ -39,10 +39,9 @@ def graph_builder_wrapper(num_classes, save_dir,
     
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
     input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
+    delta = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='delta') # used for adv robustness
     
-    with tf.variable_scope('architecture'): 
-        fc_out = arch(input_data, num_classes, wd=wd, beta=beta, update_collection=update_collection)
-        
+    fc_out = arch(input_data-delta, num_classes, wd=wd, beta=beta, update_collection=update_collection)
     saver = tf.train.Saver(max_to_keep=max_save)
     
     # Loss and optimizer
@@ -52,31 +51,21 @@ def graph_builder_wrapper(num_classes, save_dir,
     tf.summary.scalar('loss', total_loss)
     
     # Adv robustness using Duchi et al.'s ICLR 2018 result
-    delta = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='delta')
-
-    def delta_fixed_point(delta, Ip=15, lambda_coef=0.5):
-        for _ in range(Ip):
-            with tf.variable_scope('architecture', reuse=True):
-                adv_fc_out = arch(input_data-delta, num_classes, wd=wd, beta=beta, update_collection='_')
-
-            adv_loss = -loss(adv_fc_out, input_labels)
-            delta = lambda_coef*tf.gradients(adv_loss, delta)[0]
-        return delta
-
-    delta_opt = delta_fixed_point(delta)
+    adv_loss = -tf.nn.sparse_softmax_cross_entropy_with_logits(labels=input_labels, logits=fc_out)
+    delta_grad = tf.gradients(adv_loss, delta)[0]
 
     # Accuracy
     total_acc = acc(fc_out, input_labels)
     tf.summary.scalar('accuracy', total_acc)
     
     # Add histograms for trainable variables.
-#    for var in tf.trainable_variables():
-#        tf.summary.histogram(var.op.name, var)
+#     for var in tf.trainable_variables():
+#         tf.summary.histogram(var.op.name, var)
 
     # Merge all the summaries and write them out to save_dir
     merged = tf.summary.merge_all()
     train_writer = tf.summary.FileWriter(os.path.join(save_dir, 'train'))
-    train_writer.add_graph(tf.get_default_graph())
+    graph_writer = tf.summary.FileWriter(os.path.join(save_dir, 'graph'), graph=tf.get_default_graph())
     valid_writer = tf.summary.FileWriter(os.path.join(save_dir, 'validation'))
 
     # Fast gradient method for finding adversarial examples
@@ -89,11 +78,12 @@ def graph_builder_wrapper(num_classes, save_dir,
         total_acc = total_acc,
         fc_out = fc_out,
         delta = delta,
-        delta_opt = delta_opt,
+        delta_grad = delta_grad,
         opt_step = opt_step,
         learning_rate = learning_rate,
         merged = merged,
         train_writer = train_writer,
+        graph_writer = graph_writer,
         valid_writer = valid_writer,
         saver = saver,
         adv_x = adv_x
@@ -105,6 +95,8 @@ def graph_builder_wrapper(num_classes, save_dir,
 def train(Xtr, Ytr, graph, save_dir,
           val_set=None,
           adv_robustness=False,
+          Ip=15,
+          lambda_adv=0.5,
           lr_initial=0.01,
           seed=0,
           num_epochs=100,
@@ -126,9 +118,6 @@ def train(Xtr, Ytr, graph, save_dir,
             save_every = num_epochs/100
         else:
             save_every = 1
-    
-#     if adv_robustness:
-#         delta = tf.Variable(tf.zeros(shape=[batch_size, 28, 28, 3]))
     
     start = time.time()
     training_losses, training_accs = [], []
@@ -171,14 +160,16 @@ def train(Xtr, Ytr, graph, save_dir,
             for i in range(0, end, batch_size):
 
                 x, y = Xtr_[i:i+batch_size], Ytr_[i:i+batch_size]
+                d = np.zeros(np.shape(x))
 
                 if adv_robustness:
-                    d =  sess.run(graph['delta_opt'], feed_dict={graph['input_data']: x,
-                                                                 graph['input_labels']: y,
-                                                                 graph['delta']: np.zeros(np.shape(x))})
-                    x -= d
+                    for _ in range(Ip):
+                        d_ =  sess.run(graph['delta_grad'], feed_dict={graph['input_data']: x,
+                                                                       graph['input_labels']: y,
+                                                                       graph['delta']: d})
+                        d -= lambda_adv*d_
                 
-                feed_dict = {graph['input_data']: x, graph['input_labels']: y}
+                feed_dict = {graph['input_data']: x, graph['input_labels']: y, graph['delta']: d}
                 training_loss_, training_acc_, _ = \
                     sess.run([graph['total_loss'], graph['total_acc'], graph['opt_step']],
                              feed_dict=feed_dict)
@@ -198,7 +189,8 @@ def train(Xtr, Ytr, graph, save_dir,
                 
                 if val_set is not None: # make sure to keep the val_set small
                     feed_dict = {graph['input_data']: val_set['X'],
-                                 graph['input_labels']: val_set['Y']}
+                                 graph['input_labels']: val_set['Y'],
+                                 graph['delta']: np.zeros(np.shape(val_set['X']))}
                     summary = sess.run(graph['merged'], feed_dict=feed_dict)
                     graph['valid_writer'].add_summary(summary, epoch)
 
@@ -253,7 +245,8 @@ def predict_labels_in_sess(X, graph, sess, batch_size=100):
     """Predict labels within a session"""
     labels = np.zeros(len(X))
     for i in range(0, len(X), batch_size):
-        g_ = sess.run(graph['fc_out'], feed_dict = {graph['input_data']:X[i:i+batch_size]})
+        g_ = sess.run(graph['fc_out'], feed_dict = {graph['input_data']:X[i:i+batch_size], 
+                                                    graph['delta']:np.zeros(np.shape(X[i:i+batch_size]))})
         labels[i:i+batch_size] = np.argmax(g_, 1)
     return labels
 
@@ -355,7 +348,8 @@ def get_embedding_in_sess(X, graph, sess, batch_size=100):
     num_classes = graph['fc_out'].shape.as_list()[1]
     embedding = np.zeros((len(X), num_classes))
     for i in range(0, len(X), batch_size):
-        embedding_ = sess.run(graph['fc_out'], feed_dict={graph['input_data']: X[i:i+batch_size]})
+        embedding_ = sess.run(graph['fc_out'], feed_dict = {graph['input_data']:X[i:i+batch_size], 
+                                                            graph['delta']:np.zeros(np.shape(X[i:i+batch_size]))})
         embedding[i:i+batch_size] = embedding_
     return embedding
 
