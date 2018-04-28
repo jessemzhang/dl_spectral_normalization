@@ -226,7 +226,7 @@ def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet,
     if verbose: start = time.time()
     with tf.device("/gpu:%s"%(gpu_id)):
         if not os.path.exists(save_dir) or 'checkpoints' not in os.listdir(save_dir):
-            graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, wd=wd)
+            graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, wd=wd, beta=beta)
             tr_losses, tr_accs = train(Xtr, Ytr, graph, save_dir, **kwargs)
         else:
             graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, wd=wd, update_collection='_')
@@ -282,13 +282,14 @@ def build_graph_and_predict(X, save_dir,
                             Y=None,
                             num_classes=10,
                             gpu_id=0,
+                            beta=1.,
                             load_epoch=None,
                             load_weights_file=None):
     """Build a tensorflow graph and predict labels"""
     
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
-        graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, update_collection='_')
+        graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, beta=beta, update_collection='_')
         Yhat = predict_labels(X, graph, save_dir,
                               load_epoch=load_epoch,
                               load_weights_file=load_weights_file)
@@ -354,14 +355,14 @@ def get_embedding_in_sess(X, graph, sess, batch_size=100):
     return embedding
 
 
-def get_embedding(X, num_classes, save_dir, batch_size=100, arch=model.alexnet, sn_fc=False):
+def get_embedding(X, num_classes, save_dir, beta=1., batch_size=100, arch=model.alexnet, sn_fc=False):
     """recovers the representation of the data at the layer before the softmax layer
        Use sn_fc to indicate that last layer (should be named 'fc/weights:0') needs to be
          spectrally normalized.
     """
     
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, update_collection='_')
+    graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, beta=beta, update_collection='_')
     load_epoch = latest_epoch(save_dir)
 
     if sn_fc:
