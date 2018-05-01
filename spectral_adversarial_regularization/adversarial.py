@@ -90,7 +90,7 @@ def gen_adv_examples(X, graph, load_dir, sess=None, batch_size=100, load_epoch=N
         return adv_x(X, graph, sess)
 
 
-def test_net_against_adv_examples(X, Y, load_dir, arch, d=None,
+def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1.,
                                   eps=0.3, order=np.inf, gpu_id=0, verbose=True):
     """For a trained network, generate and get accuracy for adversarially-perturbed samples"""
     
@@ -100,7 +100,7 @@ def test_net_against_adv_examples(X, Y, load_dir, arch, d=None,
     # Use previously fitted network which had achieved 100% training accuracy
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
-        graph = dl_utils.graph_builder_wrapper(num_classes, load_dir, eps=eps, order=order,
+        graph = dl_utils.graph_builder_wrapper(num_classes, load_dir, beta=beta, eps=eps, order=order,
                                                arch=arch, update_collection='_')
 
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:

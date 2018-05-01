@@ -494,12 +494,25 @@ def get_margins(X, Y, save_dir, arch=model.alexnet, sn_fc=True):
     return margins
 
 
-def get_sn_weights(num_classes, save_dir, arch, print_svs=False):    
-    """Grab all weights from spectrally normalized graph"""
+def get_weights(num_classes, save_dir, arch):    
+    """Grab all weights from graph"""
     
     load_epoch = latest_epoch(save_dir)
     tf.reset_default_graph()
     graph = graph_builder_wrapper(num_classes, './temp/', arch=arch, update_collection='_')
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+        graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+        d = {v.name:sess.run(v) for v in tf.trainable_variables()}
+
+    return d
+
+
+def get_sn_weights(num_classes, save_dir, arch, beta=1, print_svs=False):    
+    """Grab all weights from spectrally normalized graph"""
+    
+    load_epoch = latest_epoch(save_dir)
+    tf.reset_default_graph()
+    graph = graph_builder_wrapper(num_classes, './temp/', arch=arch, beta=beta, update_collection='_')
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
         d = {v.name:sess.run(v) for v in tf.trainable_variables()}
@@ -513,3 +526,87 @@ def get_sn_weights(num_classes, save_dir, arch, print_svs=False):
                         ', '.join(['%.2f'%(i) for i in np.linalg.svd(d[key].reshape(-1, dim))[1][:2]])))
 
     return d
+
+
+def l2_norm(input_x, epsilon=1e-12):
+    """normalize input to unit norm"""
+    input_x_norm = input_x/(tf.reduce_sum(input_x**2)**0.5 + epsilon)
+    return input_x_norm
+
+
+def power_iteration_tf(W, Ip=20):
+    """Power method for computing top singular value of a matrix W
+       NOTE: resets tensorflow graph
+    """
+    
+    def power_iteration(u, w_mat, Ip):
+        u_ = u
+        for _ in range(Ip):
+            v_ = l2_norm(tf.matmul(u_, tf.transpose(w_mat)))
+            u_ = l2_norm(tf.matmul(v_, w_mat))
+        return u_, v_
+    
+    tf.reset_default_graph()
+    u = tf.get_variable('u', shape=[1, W.shape[-1]],
+                        initializer=tf.truncated_normal_initializer(), trainable=False)
+
+    w_mat = tf.Variable(W)
+    u_hat, v_hat = power_iteration(u, w_mat, Ip)
+    sigma = tf.matmul(tf.matmul(v_hat, w_mat), tf.transpose(u_hat))
+    
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        return sess.run(sigma).reshape(-1)
+
+
+def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20):
+    """Power method for computing top singular value of a convolution operation using W.
+       NOTE: resets tensorflow graph
+    """
+    
+    u_dims = [1, length, width, W.shape[-2]]
+    
+    def power_iteration_conv(u, w_mat, Ip):
+        u_ = u
+        for _ in range(Ip):
+            v_ = l2_norm(tf.nn.conv2d(u_, w_mat, strides=[1, stride, stride, 1], padding='SAME'))
+            u_ = l2_norm(tf.nn.conv2d_transpose(v_, w_mat, u_dims,
+                                                strides=[1, stride, stride, 1], padding='SAME'))
+        return u_, v_
+    
+    tf.reset_default_graph()
+    
+    # Initialize u (our "eigenimage")
+    u = tf.get_variable('u', shape=u_dims, 
+                        initializer=tf.truncated_normal_initializer(), trainable=False)
+
+    w_mat = tf.Variable(W)
+    u_hat, v_hat = power_iteration_conv(u, w_mat, Ip)
+    z = tf.nn.conv2d(u_hat, w_mat, strides=[1, stride, stride, 1], padding='SAME')
+    sigma = tf.reduce_sum(tf.multiply(z, v_hat))
+    
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        return sess.run(sigma).reshape(-1)
+    
+    
+def get_overall_sn(num_classes, save_dir, arch, verbose=True, return_snorms=False):
+    """Gets the overall spectral norm of a network with specified weights"""
+
+    d = get_weights(num_classes, save_dir, arch)
+    
+    s_norms = {}
+    for i in d.keys():
+        if 'weights' in i:
+            if 'conv' in i:
+                s_norms[i] = power_iteration_conv_tf(d[i])[0]
+            else:
+                s_norms[i] = power_iteration_tf(d[i])[0]
+
+            if verbose:
+                print('%20s with spectral norm %.4f'%(i, s_norms[i]))
+                
+    if return_snorms:
+        return s_norms
+
+    return(np.prod(s_norms.values()))
