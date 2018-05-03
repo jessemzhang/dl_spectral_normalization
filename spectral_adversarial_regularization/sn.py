@@ -19,7 +19,7 @@ def l2_norm(input_x, epsilon=1e-12):
 
 
 def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=False, u_width=28, beta=1.,
-           padding='SAME', spectral_norm=True, update_collection=None, xavier=False, bn=False):
+           padding='SAME', spectral_norm=True, update_collection=None, xavier=True, bn=False):
     """2D convolution layer with spectral normalization option"""
     
     output_len = kernel_size[3]
@@ -43,7 +43,7 @@ def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=False
 
 
 def linear(input_x, output_size, scope_name='linear', spectral_norm=True, 
-           update_collection=None, l2_norm=False, wd=0, xavier=False, beta=1.):
+           update_collection=None, l2_norm=False, wd=0, xavier=True, beta=1.):
     """Fully connected linear layer with spectral normalization and weight decay options"""
         
     shape = input_x.get_shape().as_list()

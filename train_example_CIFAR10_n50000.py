@@ -20,14 +20,14 @@ models = [
 ]
 wd_list = [0, 4e-2, 4e-1, 1, 4]
 beta_list = [8.0, 4.0, 2.0, 0.5, 1.0]
-adv_robustness = False
+adv_robustness = 'wrm'
 
 maindir = 'save_weights_max1sn/%s/'%(arch_name)
 gpu_prop = 0.2
 retrain = True
-save_every = 50
+save_every = 25
 num_classes = 10
-num_epochs = 500
+num_epochs = 200
 
 # ------------------------------------------------------------------------------
 # Load dataset

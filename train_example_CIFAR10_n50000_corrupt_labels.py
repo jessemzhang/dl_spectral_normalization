@@ -18,9 +18,9 @@ wd = 1.0
 
 maindir = 'save_weights_n50000_label_corrupt_%s_wd%s/'%(arch_name, wd)
 retrain = True
-save_every = 50
+save_every = 25
 num_classes = 10
-num_epochs = 500
+num_epochs = 200
 n_samps = 50000
 
 for p_corrupt_label in [10, 20, 30, 40, 50, 60, 70, 80, 90]:

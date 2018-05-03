@@ -6,7 +6,7 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 
-from adversarial import fgm
+import adversarial as ad
 from sklearn.utils import shuffle
 
 import models.alexnet_small as model
@@ -29,12 +29,12 @@ def acc(g, Y):
 
 def graph_builder_wrapper(num_classes, save_dir,
                           wd=0,
-                          eps=0.3,
-                          order=np.inf,
-                          max_save=200,
+                          lambda_adv=2,
                           arch=model.alexnet,
                           update_collection=None,
-                          beta=1.):
+                          beta=1.,
+                          save_histograms=False,
+                          max_save=200):
     """Wrapper for building graph and accessing all relevant ops/placeholders"""
     
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
@@ -50,27 +50,32 @@ def graph_builder_wrapper(num_classes, save_dir,
     opt_step = tf.train.MomentumOptimizer(learning_rate, 0.9).minimize(total_loss)
     tf.summary.scalar('loss', total_loss)
     
-    # Adv robustness using Duchi et al.'s ICLR 2018 result
-    adv_loss = -tf.nn.sparse_softmax_cross_entropy_with_logits(labels=input_labels, logits=fc_out)
-    delta_grad = tf.gradients(adv_loss, delta)[0]
+    # Adv robustness using Sinha et al.'s ICLR 2018 result
+    wrm_loss = -tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=input_labels,
+                                                               logits=fc_out, name='wrm_loss')) + lambda_adv*tf.reduce_mean(tf.reduce_sum(delta**2, reduction_indices=[1, 2, 3]))
+    delta_grad = tf.gradients(wrm_loss, delta)[0]
+    
+    # Gradient with respect to input useful for finding adversarial examples
+    adv_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf.argmax(fc_out, 1),
+                                                              logits=fc_out, name='adv_loss')
+    x_grad = tf.gradients(adv_loss, input_data)[0]
 
-    # Accuracy
+    # Compute accuracy
     total_acc = acc(fc_out, input_labels)
     tf.summary.scalar('accuracy', total_acc)
     
-    # Add histograms for trainable variables.
-#     for var in tf.trainable_variables():
-#         tf.summary.histogram(var.op.name, var)
+    # Add histograms for trainable variables (really slows down training though)
+    if save_histograms:
+        for var in tf.trainable_variables():
+            tf.summary.histogram(var.op.name, var)
 
     # Merge all the summaries and write them out to save_dir
     merged = tf.summary.merge_all()
     train_writer = tf.summary.FileWriter(os.path.join(save_dir, 'train'))
     graph_writer = tf.summary.FileWriter(os.path.join(save_dir, 'graph'), graph=tf.get_default_graph())
     valid_writer = tf.summary.FileWriter(os.path.join(save_dir, 'validation'))
-
-    # Fast gradient method for finding adversarial examples
-    adv_x = fgm(input_data, fc_out, y=None, eps=eps, order=order, clip_min=None, clip_max=None)
     
+    # Output dictionary to useful tf ops in the graph
     graph = dict(
         input_data = input_data,
         input_labels = input_labels,
@@ -79,14 +84,14 @@ def graph_builder_wrapper(num_classes, save_dir,
         fc_out = fc_out,
         delta = delta,
         delta_grad = delta_grad,
+        x_grad = x_grad,
         opt_step = opt_step,
         learning_rate = learning_rate,
         merged = merged,
         train_writer = train_writer,
         graph_writer = graph_writer,
         valid_writer = valid_writer,
-        saver = saver,
-        adv_x = adv_x
+        saver = saver
     )
     
     return graph
@@ -94,9 +99,9 @@ def graph_builder_wrapper(num_classes, save_dir,
 
 def train(Xtr, Ytr, graph, save_dir,
           val_set=None,
-          adv_robustness=False,
+          adv_robustness=None,
           Ip=15,
-          lambda_adv=0.5,
+          lambda_adv=2.0,
           lr_initial=0.01,
           seed=0,
           num_epochs=100,
@@ -162,13 +167,22 @@ def train(Xtr, Ytr, graph, save_dir,
                 x, y = Xtr_[i:i+batch_size], Ytr_[i:i+batch_size]
                 d = np.zeros(np.shape(x))
 
-                if adv_robustness:
-                    for _ in range(Ip):
-                        d_ =  sess.run(graph['delta_grad'], feed_dict={graph['input_data']: x,
-                                                                       graph['input_labels']: y,
-                                                                       graph['delta']: d})
-                        d -= lambda_adv*d_
-                
+                if adv_robustness == 'wrm':
+                    # Optimization using gradient descent as descriped in paper
+                    for ip in range(Ip):
+                        d -= (1/np.sqrt(1+ip))* sess.run(graph['delta_grad'],
+                                                        feed_dict={graph['input_data']: x,
+                                                                   graph['input_labels']: y,
+                                                                   graph['delta']: d})
+
+                elif adv_robustness == 'fgm':
+                    x_ = ad.fgm(x, graph, sess, eps=0.1, order=2)
+                    d = x-x_
+
+                elif adv_robustness == 'pgm':
+                    x_ = ad.pgm(x, graph, sess, eps=0.3, k=15, a=0.01, order=2)
+                    d = x-x_
+
                 feed_dict = {graph['input_data']: x, graph['input_labels']: y, graph['delta']: d}
                 training_loss_, training_acc_, _ = \
                     sess.run([graph['total_loss'], graph['total_acc'], graph['opt_step']],
@@ -182,11 +196,11 @@ def train(Xtr, Ytr, graph, save_dir,
                           %(epoch+1, load_epoch+num_epochs+1, time.time()-start,steps,
                             len(Xtr_)/batch_size, time.time()-t, training_loss_, training_acc_),
                           end='')            
-            
+
             if epoch%write_every == 0: # writing to tensorboard
                 summary = sess.run(graph['merged'], feed_dict=feed_dict)
                 graph['train_writer'].add_summary(summary, epoch)
-                
+
                 if val_set is not None: # make sure to keep the val_set small
                     feed_dict = {graph['input_data']: val_set['X'],
                                  graph['input_labels']: val_set['Y'],
@@ -206,10 +220,10 @@ def train(Xtr, Ytr, graph, save_dir,
                           %(early_stop_acc, epoch+1, load_epoch+num_epochs+1), end='')
                 break
 
-        print('\nDONE: epoch%s'%(epoch))
+        print('\nDONE: epoch%s\n'%(epoch))
         if not os.path.exists(os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch))):
             graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch)))
-            
+
     if verbose: print('')
     return training_losses, training_accs
 
