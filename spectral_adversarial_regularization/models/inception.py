@@ -6,14 +6,8 @@ import numpy as np
 from .. import sn
 
 def incept(input_x, input_filters, ch1_filters, ch3_filters, spectral_norm=True,
-           scope_name='incept', update_collection=None, bn=None, beta=1.):
+           scope_name='incept', update_collection=None, bn=True, beta=1.):
     """Inception module"""
-    
-    if not isinstance(bn, bool):
-        if spectral_norm:
-            bn = False
-        else:
-            bn = True
         
     with tf.variable_scope(scope_name):
         ch1_output = tf.nn.relu(sn.conv2d(input_x, [1, 1, input_filters, ch1_filters], beta=beta,
@@ -26,14 +20,8 @@ def incept(input_x, input_filters, ch1_filters, ch3_filters, spectral_norm=True,
 
 
 def downsample(input_x, input_filters, ch3_filters, spectral_norm=True,
-               scope_name='downsamp', update_collection=None, bn=None, beta=1.):
+               scope_name='downsamp', update_collection=None, bn=True, beta=1.):
     """Downsample module"""
-    
-    if not isinstance(bn, bool):
-        if spectral_norm:
-            bn = False
-        else:
-            bn = True
         
     with tf.variable_scope(scope_name):
         ch3_output = tf.nn.relu(sn.conv2d(input_x, [3, 3, input_filters, ch3_filters],

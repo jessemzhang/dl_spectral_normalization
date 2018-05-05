@@ -76,13 +76,15 @@ def alexnet_sn(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     conv1 = tf.nn.relu(conv, name='conv1_relu')
     pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool1')
+    norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name='norm1')
 
-    conv = sn.conv2d(pool1, [5, 5, 96, 256], scope_name='conv2', update_collection=update_collection, beta=beta)
+    conv = sn.conv2d(norm1, [5, 5, 96, 256], scope_name='conv2', update_collection=update_collection, beta=beta)
     conv2 = tf.nn.relu(conv, name='conv2_relu')
     pool2 = tf.nn.max_pool(conv2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool2')
+    norm2 = tf.nn.lrn(pool2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name='norm2')
     
-    reshape = tf.reshape(pool2, [-1, 6*6*256])
+    reshape = tf.reshape(norm2, [-1, 6*6*256])
     lin = sn.linear(reshape, 384, scope_name='linear1', update_collection=update_collection, beta=beta)
     lin1 = tf.nn.relu(lin, name='linear1_relu')
 
@@ -105,13 +107,15 @@ def alexnet_sar(input_data, NUM_CLASSES, wd=0, update_collection=None, beta=1.):
     conv1 = tf.nn.relu(conv, name='conv1_relu')
     pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool1')
+    norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name='norm1')
 
-    conv = sn.conv2d(pool1, [5, 5, 96, 256], scope_name='conv2', update_collection=update_collection, beta=beta)
+    conv = sn.conv2d(norm1, [5, 5, 96, 256], scope_name='conv2', update_collection=update_collection, beta=beta)
     conv2 = tf.nn.relu(conv, name='conv2_relu')
     pool2 = tf.nn.max_pool(conv2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
                            padding='VALID', name='pool2')
+    norm2 = tf.nn.lrn(pool2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name='norm2')
     
-    reshape = tf.reshape(pool2, [-1, 6*6*256])
+    reshape = tf.reshape(norm2, [-1, 6*6*256])
     lin = sn.linear(reshape, 384, scope_name='linear1', update_collection=update_collection, beta=beta)
     lin1 = tf.nn.relu(lin, name='linear1_relu')
 

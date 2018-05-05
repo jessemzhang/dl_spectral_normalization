@@ -29,17 +29,17 @@ def acc(g, Y):
 
 def graph_builder_wrapper(num_classes, save_dir,
                           wd=0,
-                          lambda_adv=2,
                           arch=model.alexnet,
                           update_collection=None,
                           beta=1.,
                           save_histograms=False,
+                          num_channels=3,
                           max_save=200):
     """Wrapper for building graph and accessing all relevant ops/placeholders"""
     
-    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='in_data')
+    input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, num_channels], name='in_data')
     input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
-    delta = tf.placeholder(tf.float32, shape=[None, 28, 28, 3], name='delta') # used for adv robustness
+    delta = tf.placeholder(tf.float32, shape=[None, 28, 28, num_channels], name='delta') # used for adv robustness
     
     fc_out = arch(input_data-delta, num_classes, wd=wd, beta=beta, update_collection=update_collection)
     saver = tf.train.Saver(max_to_keep=max_save)
@@ -51,8 +51,9 @@ def graph_builder_wrapper(num_classes, save_dir,
     tf.summary.scalar('loss', total_loss)
     
     # Adv robustness using Sinha et al.'s ICLR 2018 result
-    wrm_loss = -tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=input_labels,
-                                                               logits=fc_out, name='wrm_loss')) + lambda_adv*tf.reduce_mean(tf.reduce_sum(delta**2, reduction_indices=[1, 2, 3]))
+    eps = tf.Variable(0.3, name='eps', trainable=False)
+    wrm_loss = -eps*tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf.argmax(fc_out, 1),
+                                                               logits=fc_out, name='wrm_loss')) + 0.5*tf.reduce_mean(tf.reduce_sum(delta**2, reduction_indices=[1, 2, 3]))
     delta_grad = tf.gradients(wrm_loss, delta)[0]
     
     # Gradient with respect to input useful for finding adversarial examples
@@ -82,6 +83,7 @@ def graph_builder_wrapper(num_classes, save_dir,
         total_loss = total_loss,
         total_acc = total_acc,
         fc_out = fc_out,
+        eps = eps,
         delta = delta,
         delta_grad = delta_grad,
         x_grad = x_grad,
@@ -101,7 +103,8 @@ def train(Xtr, Ytr, graph, save_dir,
           val_set=None,
           adv_robustness=None,
           Ip=15,
-          lambda_adv=2.0,
+          eps=0.3,
+          step_adv=None,
           lr_initial=0.01,
           seed=0,
           num_epochs=100,
@@ -153,9 +156,9 @@ def train(Xtr, Ytr, graph, save_dir,
             sess.run(graph['learning_rate'].assign(lr))
 
             t = time.time()
-            training_loss = 0
-            training_acc = 0
-            steps = 0.
+            training_loss = 0.
+            training_acc = 0.
+            steps = 0
             Xtr_, Ytr_ = shuffle(Xtr, Ytr)
 
             if len(Xtr_)%batch_size == 0:
@@ -168,19 +171,15 @@ def train(Xtr, Ytr, graph, save_dir,
                 d = np.zeros(np.shape(x))
 
                 if adv_robustness == 'wrm':
-                    # Optimization using gradient descent as descriped in paper
-                    for ip in range(Ip):
-                        d -= (1/np.sqrt(1+ip))* sess.run(graph['delta_grad'],
-                                                        feed_dict={graph['input_data']: x,
-                                                                   graph['input_labels']: y,
-                                                                   graph['delta']: d})
+                    x_ = ad.wrm(x, graph, sess, eps=eps, Ip=Ip, step_adv=step_adv)
+                    d = x-x_
 
                 elif adv_robustness == 'fgm':
-                    x_ = ad.fgm(x, graph, sess, eps=0.1, order=2)
+                    x_ = ad.fgm(x, graph, sess, eps=eps, order=2)
                     d = x-x_
 
                 elif adv_robustness == 'pgm':
-                    x_ = ad.pgm(x, graph, sess, eps=0.3, k=15, a=0.01, order=2)
+                    x_ = ad.pgm(x, graph, sess, eps=eps, k=15, a=None, order=2)
                     d = x-x_
 
                 feed_dict = {graph['input_data']: x, graph['input_labels']: y, graph['delta']: d}
@@ -189,11 +188,11 @@ def train(Xtr, Ytr, graph, save_dir,
                              feed_dict=feed_dict)
                 training_loss += training_loss_
                 training_acc += training_acc_
-                steps += 1.
+                steps += 1
 
                 if verbose:
                     print('\rEpoch %s/%s (%.3f s), batch %s/%s (%.3f s): loss %.3f, acc %.3f'
-                          %(epoch+1, load_epoch+num_epochs+1, time.time()-start,steps,
+                          %(epoch+1, load_epoch+num_epochs+1, time.time()-start, steps,
                             len(Xtr_)/batch_size, time.time()-t, training_loss_, training_acc_),
                           end='')            
 
@@ -211,8 +210,8 @@ def train(Xtr, Ytr, graph, save_dir,
             if epoch%save_every == 0: # saving weights
                 graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch)))
 
-            training_losses.append(training_loss/steps)
-            training_accs.append(training_acc/steps)
+            training_losses.append(training_loss/float(steps))
+            training_accs.append(training_acc/float(steps))
 
             if early_stop_acc is not None and np.mean(training_accs[-early_stop_acc_num:]) >= early_stop_acc:
                 if verbose:
@@ -220,15 +219,14 @@ def train(Xtr, Ytr, graph, save_dir,
                           %(early_stop_acc, epoch+1, load_epoch+num_epochs+1), end='')
                 break
 
-        print('\nDONE: epoch%s\n'%(epoch))
+        if verbose: print('\nDONE: epoch%s'%(epoch))
         if not os.path.exists(os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch))):
             graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch)))
 
-    if verbose: print('')
     return training_losses, training_accs
 
 
-def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet,
+def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet, num_channels=3,
                           wd=0, gpu_id=0, seed=0, verbose=True, beta=1., **kwargs):
     """Build tensorflow graph and train"""
     
@@ -240,7 +238,8 @@ def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet,
     if verbose: start = time.time()
     with tf.device("/gpu:%s"%(gpu_id)):
         if not os.path.exists(save_dir) or 'checkpoints' not in os.listdir(save_dir):
-            graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, wd=wd, beta=beta)
+            graph = graph_builder_wrapper(num_classes, save_dir, arch=arch,
+                                          wd=wd, beta=beta, num_channels=num_channels)
             tr_losses, tr_accs = train(Xtr, Ytr, graph, save_dir, **kwargs)
         else:
             graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, wd=wd, update_collection='_')
@@ -297,13 +296,15 @@ def build_graph_and_predict(X, save_dir,
                             num_classes=10,
                             gpu_id=0,
                             beta=1.,
+                            num_channels=3,
                             load_epoch=None,
                             load_weights_file=None):
     """Build a tensorflow graph and predict labels"""
     
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
-        graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, beta=beta, update_collection='_')
+        graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, beta=beta,
+                                      update_collection='_', num_channels=num_channels)
         Yhat = predict_labels(X, graph, save_dir,
                               load_epoch=load_epoch,
                               load_weights_file=load_weights_file)
@@ -508,12 +509,13 @@ def get_margins(X, Y, save_dir, arch=model.alexnet, sn_fc=True):
     return margins
 
 
-def get_weights(num_classes, save_dir, arch):    
+def get_weights(num_classes, save_dir, arch, num_channels=3):    
     """Grab all weights from graph"""
     
     load_epoch = latest_epoch(save_dir)
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(num_classes, './temp/', arch=arch, update_collection='_')
+    graph = graph_builder_wrapper(num_classes, './temp/', arch=arch,
+                                  update_collection='_', num_channels=num_channels)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
         d = {v.name:sess.run(v) for v in tf.trainable_variables()}
@@ -604,10 +606,10 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20):
         return sess.run(sigma).reshape(-1)
     
     
-def get_overall_sn(num_classes, save_dir, arch, verbose=True, return_snorms=False):
+def get_overall_sn(num_classes, save_dir, arch, verbose=True, return_snorms=False, num_channels=3):
     """Gets the overall spectral norm of a network with specified weights"""
 
-    d = get_weights(num_classes, save_dir, arch)
+    d = get_weights(num_classes, save_dir, arch, num_channels=num_channels)
     
     s_norms = {}
     for i in d.keys():
