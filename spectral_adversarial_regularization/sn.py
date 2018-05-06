@@ -18,12 +18,12 @@ def l2_norm(input_x, epsilon=1e-12):
     return input_x_norm
 
 
-def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=False, u_width=28, beta=1.,
-           padding='SAME', spectral_norm=True, update_collection=None, xavier=True, bn=False):
+def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=True, u_width=28, beta=1.,
+           padding='SAME', spectral_norm=True, update_collection=None, xavier=True, bn=False, reuse=None):
     """2D convolution layer with spectral normalization option"""
     
     output_len = kernel_size[3]
-    with tf.variable_scope(scope_name):
+    with tf.variable_scope(scope_name, reuse=reuse):
         if xavier:
             weights = tf.get_variable('weights', kernel_size, tf.float32, 
                                       initializer=tf.contrib.layers.xavier_initializer())
@@ -43,7 +43,7 @@ def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=False
 
 
 def linear(input_x, output_size, scope_name='linear', spectral_norm=True, 
-           update_collection=None, l2_norm=False, wd=0, xavier=True, beta=1.):
+           update_collection=None, l2_norm=False, wd=0, xavier=True, beta=1., reuse=None):
     """Fully connected linear layer with spectral normalization and weight decay options"""
         
     shape = input_x.get_shape().as_list()
@@ -56,7 +56,7 @@ def linear(input_x, output_size, scope_name='linear', spectral_norm=True,
     shape = flat_x.get_shape()
     input_size = shape[1]
     
-    with tf.variable_scope(scope_name):
+    with tf.variable_scope(scope_name, reuse=reuse):
         if xavier:
             weights = tf.get_variable('weights', [input_size, output_size], tf.float32, 
                                       initializer=tf.contrib.layers.xavier_initializer())

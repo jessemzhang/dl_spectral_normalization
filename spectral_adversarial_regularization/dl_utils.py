@@ -11,14 +11,18 @@ from sklearn.utils import shuffle
 
 import models.alexnet_small as model
 
-def loss(g, Y):
+def loss(g, Y, mean=True, add_other_losses=True):
     """Cross-entropy loss between labels and output of linear activation function"""
-    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=Y, 
-                                                                   logits=g, 
-                                                                   name='cross_entropy_per_example')
-    cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
-    tf.add_to_collection('losses', cross_entropy_mean)
-    return tf.add_n(tf.get_collection('losses'), name='total_loss')
+    out = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=Y, logits=g)
+    
+    if mean:
+        out = tf.reduce_mean(out)
+        
+        if add_other_losses:
+            tf.add_to_collection('losses', out)
+            return tf.add_n(tf.get_collection('losses'))
+            
+    return out
 
 
 def acc(g, Y):
@@ -27,9 +31,12 @@ def acc(g, Y):
     return tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
 
-def graph_builder_wrapper(num_classes, save_dir,
+def graph_builder_wrapper(arch,
+                          num_classes=10,
+                          adv=None,
+                          eps=0.3,
+                          save_dir=None,
                           wd=0,
-                          arch=model.alexnet,
                           update_collection=None,
                           beta=1.,
                           save_histograms=False,
@@ -39,42 +46,43 @@ def graph_builder_wrapper(num_classes, save_dir,
     
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, num_channels], name='in_data')
     input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
-    delta = tf.placeholder(tf.float32, shape=[None, 28, 28, num_channels], name='delta') # used for adv robustness
     
-    fc_out = arch(input_data-delta, num_classes, wd=wd, beta=beta, update_collection=update_collection)
-    saver = tf.train.Saver(max_to_keep=max_save)
+    fc_out = arch(input_data, num_classes=num_classes, wd=wd,
+                  beta=beta, update_collection=update_collection)
     
-    # Loss and optimizer
-    total_loss = loss(fc_out, input_labels)
+    # Loss and optimizer (with adversarial training options)
     learning_rate = tf.Variable(0.01, name='learning_rate', trainable=False)
-    opt_step = tf.train.MomentumOptimizer(learning_rate, 0.9).minimize(total_loss)
-    tf.summary.scalar('loss', total_loss)
     
-    # Adv robustness using Sinha et al.'s ICLR 2018 result
-    eps = tf.Variable(0.3, name='eps', trainable=False)
-    wrm_loss = -eps*tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf.argmax(fc_out, 1),
-                                                               logits=fc_out, name='wrm_loss')) + 0.5*tf.reduce_mean(tf.reduce_sum(delta**2, reduction_indices=[1, 2, 3]))
-    delta_grad = tf.gradients(wrm_loss, delta)[0]
+    if adv in ['wrm', 'fgm', 'pgm']:
+        if adv == 'wrm':
+            adv_x = ad.wrm(input_data, fc_out, eps=eps, model=arch, k=15,
+                           num_classes=num_classes, graph_beta=beta)
+        elif adv == 'fgm':
+            adv_x = ad.fgm(input_data, fc_out, eps=eps, order=2)
+            
+        elif adv == 'pgm':
+            adv_x = ad.pgm(input_data, fc_out, eps=eps, order=2, model=arch, k=15,
+                           num_classes=num_classes, graph_beta=beta)
+            
+        fc_out_adv = arch(adv_x, num_classes=num_classes, wd=wd,
+                          beta=beta, update_collection=update_collection, reuse=True)
+        total_loss = loss(fc_out_adv, input_labels)
+        
+    else:
+        total_loss = loss(fc_out, input_labels)
+
+    if num_channels == 1: # For MNIST dataset
+        opt_step = tf.train.AdamOptimizer(0.001).minimize(total_loss)
+    else:
+        opt_step = tf.train.MomentumOptimizer(learning_rate, 0.9).minimize(total_loss)
     
-    # Gradient with respect to input useful for finding adversarial examples
+    # Gradient with respect to input (useful for finding adversarial examples)
     adv_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf.argmax(fc_out, 1),
                                                               logits=fc_out, name='adv_loss')
     x_grad = tf.gradients(adv_loss, input_data)[0]
 
     # Compute accuracy
     total_acc = acc(fc_out, input_labels)
-    tf.summary.scalar('accuracy', total_acc)
-    
-    # Add histograms for trainable variables (really slows down training though)
-    if save_histograms:
-        for var in tf.trainable_variables():
-            tf.summary.histogram(var.op.name, var)
-
-    # Merge all the summaries and write them out to save_dir
-    merged = tf.summary.merge_all()
-    train_writer = tf.summary.FileWriter(os.path.join(save_dir, 'train'))
-    graph_writer = tf.summary.FileWriter(os.path.join(save_dir, 'graph'), graph=tf.get_default_graph())
-    valid_writer = tf.summary.FileWriter(os.path.join(save_dir, 'validation'))
     
     # Output dictionary to useful tf ops in the graph
     graph = dict(
@@ -83,27 +91,40 @@ def graph_builder_wrapper(num_classes, save_dir,
         total_loss = total_loss,
         total_acc = total_acc,
         fc_out = fc_out,
-        eps = eps,
-        delta = delta,
-        delta_grad = delta_grad,
         x_grad = x_grad,
         opt_step = opt_step,
-        learning_rate = learning_rate,
-        merged = merged,
-        train_writer = train_writer,
-        graph_writer = graph_writer,
-        valid_writer = valid_writer,
-        saver = saver
+        learning_rate = learning_rate
     )
+
+    # Saving weights and useful information to tensorboard
+    if save_dir is not None:
+        saver = tf.train.Saver(max_to_keep=max_save)
+        tf.summary.scalar('loss', total_loss)
+        tf.summary.scalar('accuracy', total_acc)
+        
+        # Add histograms for trainable variables (really slows down training though)
+        if save_histograms:
+            for var in tf.trainable_variables():
+                tf.summary.histogram(var.op.name, var)
+
+        # Merge all the summaries and write them out to save_dir
+        merged = tf.summary.merge_all()
+        train_writer = tf.summary.FileWriter(os.path.join(save_dir, 'train'))
+        graph_writer = tf.summary.FileWriter(os.path.join(save_dir, 'graph'), graph=tf.get_default_graph())
+        valid_writer = tf.summary.FileWriter(os.path.join(save_dir, 'validation'))
+        
+        graph['merged'] = merged
+        graph['train_writer'] = train_writer
+        graph['graph_writer'] = graph_writer
+        graph['valid_writer'] = valid_writer
+        graph['saver'] = saver
     
     return graph
 
 
 def train(Xtr, Ytr, graph, save_dir,
           val_set=None,
-          adv_robustness=None,
           Ip=15,
-          eps=0.3,
           step_adv=None,
           lr_initial=0.01,
           seed=0,
@@ -168,21 +189,8 @@ def train(Xtr, Ytr, graph, save_dir,
             for i in range(0, end, batch_size):
 
                 x, y = Xtr_[i:i+batch_size], Ytr_[i:i+batch_size]
-                d = np.zeros(np.shape(x))
 
-                if adv_robustness == 'wrm':
-                    x_ = ad.wrm(x, graph, sess, eps=eps, Ip=Ip, step_adv=step_adv)
-                    d = x-x_
-
-                elif adv_robustness == 'fgm':
-                    x_ = ad.fgm(x, graph, sess, eps=eps, order=2)
-                    d = x-x_
-
-                elif adv_robustness == 'pgm':
-                    x_ = ad.pgm(x, graph, sess, eps=eps, k=15, a=None, order=2)
-                    d = x-x_
-
-                feed_dict = {graph['input_data']: x, graph['input_labels']: y, graph['delta']: d}
+                feed_dict = {graph['input_data']: x, graph['input_labels']: y}
                 training_loss_, training_acc_, _ = \
                     sess.run([graph['total_loss'], graph['total_acc'], graph['opt_step']],
                              feed_dict=feed_dict)
@@ -202,8 +210,7 @@ def train(Xtr, Ytr, graph, save_dir,
 
                 if val_set is not None: # make sure to keep the val_set small
                     feed_dict = {graph['input_data']: val_set['X'],
-                                 graph['input_labels']: val_set['Y'],
-                                 graph['delta']: np.zeros(np.shape(val_set['X']))}
+                                 graph['input_labels']: val_set['Y']}
                     summary = sess.run(graph['merged'], feed_dict=feed_dict)
                     graph['valid_writer'].add_summary(summary, epoch)
 
@@ -226,8 +233,17 @@ def train(Xtr, Ytr, graph, save_dir,
     return training_losses, training_accs
 
 
-def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet, num_channels=3,
-                          wd=0, gpu_id=0, seed=0, verbose=True, beta=1., **kwargs):
+def build_graph_and_train(Xtr, Ytr, save_dir, arch,
+                          num_classes=10,
+                          num_channels=3,
+                          adv=None,
+                          eps=0.3,
+                          wd=0,
+                          gpu_id=0,
+                          seed=0,
+                          verbose=True,
+                          beta=1.,
+                          **kwargs):
     """Build tensorflow graph and train"""
     
     tf.reset_default_graph()
@@ -238,11 +254,12 @@ def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet, n
     if verbose: start = time.time()
     with tf.device("/gpu:%s"%(gpu_id)):
         if not os.path.exists(save_dir) or 'checkpoints' not in os.listdir(save_dir):
-            graph = graph_builder_wrapper(num_classes, save_dir, arch=arch,
+            graph = graph_builder_wrapper(arch, adv=adv, eps=eps, num_classes=num_classes, save_dir=save_dir,
                                           wd=wd, beta=beta, num_channels=num_channels)
             tr_losses, tr_accs = train(Xtr, Ytr, graph, save_dir, **kwargs)
         else:
-            graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, wd=wd, update_collection='_')
+            graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir,
+                                          wd=wd, beta=beta, num_channels=num_channels, update_collection='_')
             if verbose:
                 print('Model already exists.. loading trained model..')
         Ytrhat = predict_labels(Xtr, graph, save_dir)
@@ -256,16 +273,17 @@ def build_graph_and_train(Xtr, Ytr, save_dir, num_classes, arch=model.alexnet, n
 
 def predict_labels_in_sess(X, graph, sess, batch_size=100):
     """Predict labels within a session"""
+    
     labels = np.zeros(len(X))
     for i in range(0, len(X), batch_size):
-        g_ = sess.run(graph['fc_out'], feed_dict = {graph['input_data']:X[i:i+batch_size], 
-                                                    graph['delta']:np.zeros(np.shape(X[i:i+batch_size]))})
+        g_ = sess.run(graph['fc_out'], feed_dict = {graph['input_data']:X[i:i+batch_size]})
         labels[i:i+batch_size] = np.argmax(g_, 1)
     return labels
 
 
 def latest_epoch(save_dir):
     """Grabs int corresponding to last epoch of weights saved in save_dir"""
+    
     return max([int(f.split('epoch')[1].split('.')[0]) 
                 for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if 'epoch' in f])
 
@@ -290,8 +308,7 @@ def predict_labels(X, graph, save_dir,
         return predict_labels_in_sess(X, graph, sess, batch_size=batch_size)
 
 
-def build_graph_and_predict(X, save_dir,
-                            arch=model.alexnet,
+def build_graph_and_predict(X, save_dir, arch,
                             Y=None,
                             num_classes=10,
                             gpu_id=0,
@@ -303,7 +320,7 @@ def build_graph_and_predict(X, save_dir,
     
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
-        graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, beta=beta,
+        graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir, beta=beta,
                                       update_collection='_', num_channels=num_channels)
         Yhat = predict_labels(X, graph, save_dir,
                               load_epoch=load_epoch,
@@ -361,23 +378,24 @@ def recover_train_and_test_curves(Xtr, Ytr, Xtt, Ytt, save_dir,
 
 def get_embedding_in_sess(X, graph, sess, batch_size=100):
     """Gets embedding (last layer output) within a session"""
+    
     num_classes = graph['fc_out'].shape.as_list()[1]
     embedding = np.zeros((len(X), num_classes))
     for i in range(0, len(X), batch_size):
-        embedding_ = sess.run(graph['fc_out'], feed_dict = {graph['input_data']:X[i:i+batch_size], 
-                                                            graph['delta']:np.zeros(np.shape(X[i:i+batch_size]))})
+        embedding_ = sess.run(graph['fc_out'], feed_dict = {graph['input_data']:X[i:i+batch_size]})
         embedding[i:i+batch_size] = embedding_
     return embedding
 
 
-def get_embedding(X, num_classes, save_dir, beta=1., batch_size=100, arch=model.alexnet, sn_fc=False):
+def get_embedding(X, save_dir, arch, num_classes=10, beta=1., batch_size=100, sn_fc=False):
     """recovers the representation of the data at the layer before the softmax layer
        Use sn_fc to indicate that last layer (should be named 'fc/weights:0') needs to be
          spectrally normalized.
     """
     
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, beta=beta, update_collection='_')
+    graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir, 
+                                  beta=beta, update_collection='_')
     load_epoch = latest_epoch(save_dir)
 
     if sn_fc:
@@ -397,11 +415,12 @@ def get_embedding(X, num_classes, save_dir, beta=1., batch_size=100, arch=model.
         return get_embedding_in_sess(X, graph, sess, batch_size=batch_size)
 
     
-def check_weights_svs(num_classes, save_dir, arch=model.alexnet, n=2, load_epoch=None, beta=1.):    
+def check_weights_svs(save_dir, arch, num_classes=10, n=2, load_epoch=None, beta=1.):    
     """Check singular value of all weights"""
     
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(num_classes, save_dir, arch=arch, update_collection='_', beta=beta)
+    graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir,
+                                  update_collection='_', beta=beta)
     
     if load_epoch is None:
         load_epoch = latest_epoch(save_dir)
@@ -483,13 +502,13 @@ def plot_stacked_hist(v0, v1, labels=None):
     plt.legend()
 
 
-def get_margins(X, Y, save_dir, arch=model.alexnet, sn_fc=True):
+def get_margins(X, Y, save_dir, arch, sn_fc=True, beta=1.):
     """Compute margins for X (margin = last layer difference between true label and 
        highest value that's not the true label)
     """
     
     num_classes = len(np.unique(Y))
-    embeddings = get_embedding(X, num_classes, save_dir, arch=arch, sn_fc=sn_fc)
+    embeddings = get_embedding(X, save_dir, arch, num_classes=10, beta=beta, sn_fc=sn_fc)
 #    embeddings = np.exp(embeddings)
 #    embeddings /= np.sum(embeddings, 1).reshape(-1, 1)
     margins = np.zeros(len(embeddings))
@@ -509,12 +528,12 @@ def get_margins(X, Y, save_dir, arch=model.alexnet, sn_fc=True):
     return margins
 
 
-def get_weights(num_classes, save_dir, arch, num_channels=3):    
+def get_weights(save_dir, arch, num_classes=10, num_channels=3):    
     """Grab all weights from graph"""
     
     load_epoch = latest_epoch(save_dir)
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(num_classes, './temp/', arch=arch,
+    graph = graph_builder_wrapper(arch, save_dir=save_dir, num_classes=num_classes,
                                   update_collection='_', num_channels=num_channels)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
@@ -523,12 +542,12 @@ def get_weights(num_classes, save_dir, arch, num_channels=3):
     return d
 
 
-def get_sn_weights(num_classes, save_dir, arch, beta=1, print_svs=False):    
+def get_sn_weights(save_dir, arch, num_classes=10, beta=1, print_svs=False):    
     """Grab all weights from spectrally normalized graph"""
     
     load_epoch = latest_epoch(save_dir)
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(num_classes, './temp/', arch=arch, beta=beta, update_collection='_')
+    graph = graph_builder_wrapper(arch, num_classes=num_classes, beta=beta, update_collection='_')
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
         d = {v.name:sess.run(v) for v in tf.trainable_variables()}
@@ -606,10 +625,10 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20):
         return sess.run(sigma).reshape(-1)
     
     
-def get_overall_sn(num_classes, save_dir, arch, verbose=True, return_snorms=False, num_channels=3):
+def get_overall_sn(save_dir, arch, num_classes=10, verbose=True, return_snorms=False, num_channels=3):
     """Gets the overall spectral norm of a network with specified weights"""
 
-    d = get_weights(num_classes, save_dir, arch, num_channels=num_channels)
+    d = get_weights(save_dir, arch, num_classes=num_classes, num_channels=num_channels)
     
     s_norms = {}
     for i in d.keys():
