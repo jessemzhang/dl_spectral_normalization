@@ -43,7 +43,7 @@ def graph_builder_wrapper(arch,
                           num_channels=3,
                           max_save=200):
     """Wrapper for building graph and accessing all relevant ops/placeholders"""
-    
+
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, num_channels], name='in_data')
     input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
     
@@ -163,9 +163,9 @@ def train(Xtr, Ytr, graph, save_dir,
         else:
             if not os.path.exists(os.path.join(save_dir, 'checkpoints')):
                 os.mkdir(os.path.join(save_dir, 'checkpoints'))
-            graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'initial_weights'))
+            graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'epoch0'))
         
-        for epoch in range(load_epoch+1, load_epoch+num_epochs+1):
+        for epoch in range(load_epoch+2, load_epoch+num_epochs+2):
 
             lr = lr_initial*0.95**(epoch/390.) # initial lr * decay rate ^(step/decay_steps)
             sess.run(graph['learning_rate'].assign(lr))
@@ -194,7 +194,7 @@ def train(Xtr, Ytr, graph, save_dir,
 
                 if verbose:
                     print('\rEpoch %s/%s (%.3f s), batch %s/%s (%.3f s): loss %.3f, acc %.3f'
-                          %(epoch+1, load_epoch+num_epochs+1, time.time()-start, steps,
+                          %(epoch, load_epoch+num_epochs+1, time.time()-start, steps,
                             len(Xtr_)/batch_size, time.time()-t, training_loss_, training_acc_),
                           end='')            
 
@@ -216,11 +216,11 @@ def train(Xtr, Ytr, graph, save_dir,
 
             if early_stop_acc is not None and np.mean(training_accs[-early_stop_acc_num:]) >= early_stop_acc:
                 if verbose:
-                    print('\rMean acc >= %s for last 10 epochs. Stopping training after epoch %s/%s.'
-                          %(early_stop_acc, epoch+1, load_epoch+num_epochs+1), end='')
+                    print('\rMean acc >= %s for last %s epochs. Stopping training after epoch %s/%s.'
+                          %(early_stop_acc, early_stop_acc_num, epoch, load_epoch+num_epochs+1), end='')
                 break
 
-        if verbose: print('\nDONE: epoch%s'%(epoch))
+        if verbose: print('\nDONE: Trained for %s epochs.'%(epoch))
         if not os.path.exists(os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch))):
             graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch)))
 
@@ -563,7 +563,7 @@ def l2_norm(input_x, epsilon=1e-12):
     return input_x_norm
 
 
-def power_iteration_tf(W, Ip=20):
+def power_iteration_tf(W, Ip=20, seed=0):
     """Power method for computing top singular value of a matrix W
        NOTE: resets tensorflow graph
     """
@@ -576,6 +576,9 @@ def power_iteration_tf(W, Ip=20):
         return u_, v_
     
     tf.reset_default_graph()
+    if seed is not None: 
+        tf.set_random_seed(seed)
+        
     u = tf.get_variable('u', shape=[1, W.shape[-1]],
                         initializer=tf.truncated_normal_initializer(), trainable=False)
 
@@ -588,7 +591,7 @@ def power_iteration_tf(W, Ip=20):
         return sess.run(sigma).reshape(-1)
 
 
-def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20):
+def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0):
     """Power method for computing top singular value of a convolution operation using W.
        NOTE: resets tensorflow graph
     """
@@ -604,6 +607,8 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20):
         return u_, v_
     
     tf.reset_default_graph()
+    if seed is not None: 
+        tf.set_random_seed(seed)
     
     # Initialize u (our "eigenimage")
     u = tf.get_variable('u', shape=u_dims, 
@@ -619,7 +624,8 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20):
         return sess.run(sigma).reshape(-1)
     
     
-def get_overall_sn(save_dir, arch, num_classes=10, verbose=True, return_snorms=False, num_channels=3):
+def get_overall_sn(save_dir, arch, num_classes=10, verbose=True, return_snorms=False,
+                   num_channels=3, seed=0):
     """Gets the overall spectral norm of a network with specified weights"""
 
     d = get_weights(save_dir, arch, num_classes=num_classes, num_channels=num_channels)
@@ -628,9 +634,9 @@ def get_overall_sn(save_dir, arch, num_classes=10, verbose=True, return_snorms=F
     for i in d.keys():
         if 'weights' in i:
             if 'conv' in i:
-                s_norms[i] = power_iteration_conv_tf(d[i])[0]
+                s_norms[i] = power_iteration_conv_tf(d[i], seed=seed)[0]
             else:
-                s_norms[i] = power_iteration_tf(d[i])[0]
+                s_norms[i] = power_iteration_tf(d[i], seed=seed)[0]
 
             if verbose:
                 print('%20s with spectral norm %.4f'%(i, s_norms[i]))

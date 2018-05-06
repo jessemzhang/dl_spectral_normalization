@@ -34,9 +34,11 @@ def project_back_onto_unit_ball(x_adv, x, eps=0.3, order=2):
     return x+delta/adj_norms
 
 
-def fgm(x, preds, y=None, eps=0.3, order=np.inf, model=None, clip_min=None, clip_max=None):
+def fgm(x, preds, y=None, eps=0.3, order=np.inf, model=None, clip_min=None, clip_max=None,
+        reuse=True, graph_beta=1.0, num_classes=10):
     """
-    TensorFlow implementation of the Fast Gradient Method.
+    TensorFlow implementation of the Fast Gradient Method. Code adapted from
+    https://github.com/tensorflow/cleverhans/blob/master/cleverhans/attacks_tf.py
     :param x: the input placeholder
     :param preds: the model's output tensor
     :param y: (optional) A placeholder for the model labels. Only provide
@@ -95,7 +97,8 @@ def wrm(x, preds, y=None, eps=0.3, order=2, model=None, k=15,
   
     """
     TensorFlow implementation of the Wasserstein distributionally
-    adversarial training method. 
+    adversarial training method. Code adapted from
+    https://github.com/duchi-lab/certifiable-distributional-robustness/blob/master/attacks_tf.py
     :param x: the input placeholder
     :param preds: the model's output tensor
     :param y: (optional) A placeholder for the model labels. Only provide
@@ -189,8 +192,24 @@ def gen_adv_examples_in_sess(X, graph, sess, batch_size=100, method=fgm, **kwarg
     return adv_x
 
 
+def build_graph_and_gen_adv_examples(X, arch, load_dir, num_classes=10, beta=1, num_channels=3,
+                                     gpu_prop=0.2, gpu_id=0, method=fgm, **kwargs):
+    
+    # Use previously fitted network which had achieved 100% training accuracy
+    tf.reset_default_graph()
+    with tf.device("/gpu:%s"%(gpu_id)):
+        graph = dl_utils.graph_builder_wrapper(arch, num_classes=num_classes, save_dir=load_dir, beta=beta,
+                                               num_channels=num_channels, update_collection='_')
+
+        with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
+                                              gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
+            load_epoch = dl_utils.latest_epoch(load_dir)
+            graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+            return gen_adv_examples_in_sess(X, graph, sess, method=method, model=arch, graph_beta=beta, **kwargs)
+            
+
 def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_channels=3,
-                                  verbose=True, gpu_id=0, gpu_prop=0.2,
+                                  verbose=True, gpu_id=0, gpu_prop=0.2, load_epoch=None,
                                   method=fgm, **kwargs):
     """For a trained network, generate and get accuracy for adversarially-perturbed samples"""
     
@@ -206,7 +225,8 @@ def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_cha
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
                                               gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
             if d is None:
-                load_epoch = dl_utils.latest_epoch(load_dir)
+                if load_epoch is None:
+                    load_epoch = dl_utils.latest_epoch(load_dir)
                 graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
 
             else:
