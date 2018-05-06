@@ -75,11 +75,6 @@ def graph_builder_wrapper(arch,
         opt_step = tf.train.AdamOptimizer(0.001).minimize(total_loss)
     else:
         opt_step = tf.train.MomentumOptimizer(learning_rate, 0.9).minimize(total_loss)
-    
-    # Gradient with respect to input (useful for finding adversarial examples)
-    adv_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf.argmax(fc_out, 1),
-                                                              logits=fc_out, name='adv_loss')
-    x_grad = tf.gradients(adv_loss, input_data)[0]
 
     # Compute accuracy
     total_acc = acc(fc_out, input_labels)
@@ -91,7 +86,6 @@ def graph_builder_wrapper(arch,
         total_loss = total_loss,
         total_acc = total_acc,
         fc_out = fc_out,
-        x_grad = x_grad,
         opt_step = opt_step,
         learning_rate = learning_rate
     )
