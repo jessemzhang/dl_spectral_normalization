@@ -35,7 +35,7 @@ def project_back_onto_unit_ball(x_adv, x, eps=0.3, order=2):
 
 
 def fgm(x, preds, y=None, eps=0.3, order=np.inf, model=None, clip_min=None, clip_max=None,
-        reuse=True, graph_beta=1.0, num_classes=10):
+        reuse=True, update_collection='_', graph_beta=1.0, num_classes=10):
     """
     TensorFlow implementation of the Fast Gradient Method. Code adapted from
     https://github.com/tensorflow/cleverhans/blob/master/cleverhans/attacks_tf.py
@@ -93,7 +93,7 @@ def fgm(x, preds, y=None, eps=0.3, order=np.inf, model=None, clip_min=None, clip
 
     
 def wrm(x, preds, y=None, eps=0.3, order=2, model=None, k=15,
-        reuse=True, graph_beta=1.0, num_classes=10):
+        reuse=True, update_collection='_', graph_beta=1.0, num_classes=10):
   
     """
     TensorFlow implementation of the Wasserstein distributionally
@@ -127,7 +127,8 @@ def wrm(x, preds, y=None, eps=0.3, order=2, model=None, k=15,
     x = tf.stop_gradient(x)
     
     for t in xrange(k):
-        loss_ = dl_utils.loss(model(x_adv, reuse=True, beta=graph_beta), y, mean=False)
+        loss_ = dl_utils.loss(model(x_adv, reuse=True, beta=graph_beta, 
+                                    update_collection=update_collection), y, mean=False)
         grad, = tf.gradients(eps*loss_, x_adv)
         grad2, = tf.gradients(tf.nn.l2_loss(x_adv-x), x_adv)
         grad = grad - grad2
@@ -137,7 +138,7 @@ def wrm(x, preds, y=None, eps=0.3, order=2, model=None, k=15,
 
 
 def pgm(x, preds, y=None, eps=0.3, order=2, model=None, a=None, k=15,
-        reuse=True, graph_beta=1., num_classes=10):
+        reuse=True, update_collection='_', graph_beta=1., num_classes=10):
     """
     TensorFlow implementation of the Projected Gradient Method.
     :param x: the input placeholder
@@ -166,7 +167,8 @@ def pgm(x, preds, y=None, eps=0.3, order=2, model=None, a=None, k=15,
     x_adv = x
     
     for t in xrange(k):
-        loss_ = dl_utils.loss(model(x_adv, reuse=reuse, beta=graph_beta), y, mean=False)
+        loss_ = dl_utils.loss(model(x_adv, reuse=reuse, beta=graph_beta,
+                                    update_collection=update_collection), y, mean=False)
         grad, = tf.gradients(loss_, x_adv)
         
         if order == 1:
@@ -183,19 +185,23 @@ def pgm(x, preds, y=None, eps=0.3, order=2, model=None, a=None, k=15,
     
 def gen_adv_examples_in_sess(X, graph, sess, batch_size=100, method=fgm, **kwargs):
     """Use trained model to generate adversarial examples from X within a session"""
-    
+
     adv_tensor = method(graph['input_data'], graph['fc_out'], **kwargs)
     
     adv_x = np.zeros(np.shape(X))
     for i in range(0, len(X), batch_size):
         adv_x[i:i+batch_size] = sess.run(adv_tensor, feed_dict={graph['input_data']: X[i:i+batch_size]})
+        
     return adv_x
 
 
 def build_graph_and_gen_adv_examples(X, arch, load_dir, num_classes=10, beta=1, num_channels=3,
-                                     gpu_prop=0.2, gpu_id=0, method=fgm, **kwargs):
+                                     gpu_prop=0.2, gpu_id=0, load_epoch=None, method=fgm, **kwargs):
+    """Build a tensorflow graph and generate adversarial examples"""
     
-    # Use previously fitted network which had achieved 100% training accuracy
+    if load_epoch is None:
+        load_epoch = dl_utils.latest_epoch(load_dir)
+        
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
         graph = dl_utils.graph_builder_wrapper(arch, num_classes=num_classes, save_dir=load_dir, beta=beta,
@@ -203,7 +209,6 @@ def build_graph_and_gen_adv_examples(X, arch, load_dir, num_classes=10, beta=1, 
 
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
                                               gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
-            load_epoch = dl_utils.latest_epoch(load_dir)
             graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
             return gen_adv_examples_in_sess(X, graph, sess, method=method, model=arch, graph_beta=beta, **kwargs)
             
@@ -240,7 +245,7 @@ def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_cha
     accs_adv = np.sum(Yhat_adv == Y)/float(len(Y))
 
     if verbose:
-        print('Acc on adv examples: %.2f (%.3f s elapsed)' \
+        print('Acc on adv examples: %.4f (%.3f s elapsed)' \
               %(accs_adv, time.time()-start))
 
     return accs_adv

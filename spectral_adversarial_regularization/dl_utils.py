@@ -128,7 +128,6 @@ def train(Xtr, Ytr, graph, save_dir,
           save_every=None,
           verbose=True,
           load_epoch=-1,
-          load_weights_file=None,
           early_stop_acc=None,
           early_stop_acc_num=10,
           gpu_prop=0.2):
@@ -149,12 +148,7 @@ def train(Xtr, Ytr, graph, save_dir,
 
         sess.run(tf.global_variables_initializer())
 
-        if load_weights_file is not None:
-            if verbose:
-                print('Loading weights from %s..'%(load_weights_file))
-            graph['saver'].restore(sess,load_weights_file)
-
-        elif load_epoch > -1:
+        if load_epoch > -1:
             if verbose:
                 print('Continuing training starting at epoch %s+1'%(load_epoch))
             restore_weights_file = os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch))
@@ -284,21 +278,15 @@ def latest_epoch(save_dir):
 
 def predict_labels(X, graph, save_dir, 
                    batch_size=100,
-                   load_epoch=None,
-                   load_weights_file=None):
+                   load_epoch=None):
     """Use trained model to predict"""
     
     # Load from checkpoint corresponding to latest epoch if none given
-    if load_weights_file == None and load_epoch == None:
+    if load_epoch is None:
         load_epoch = latest_epoch(save_dir)
 
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
-
-        if load_weights_file == None:
-            graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
-        else:
-            graph['saver'].restore(sess, load_weights_file)
-        
+        graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))        
         return predict_labels_in_sess(X, graph, sess, batch_size=batch_size)
 
 
@@ -308,17 +296,14 @@ def build_graph_and_predict(X, save_dir, arch,
                             gpu_id=0,
                             beta=1.,
                             num_channels=3,
-                            load_epoch=None,
-                            load_weights_file=None):
+                            load_epoch=None):
     """Build a tensorflow graph and predict labels"""
     
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
         graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir, beta=beta,
                                       update_collection='_', num_channels=num_channels)
-        Yhat = predict_labels(X, graph, save_dir,
-                              load_epoch=load_epoch,
-                              load_weights_file=load_weights_file)
+        Yhat = predict_labels(X, graph, save_dir, load_epoch=load_epoch)
     if Y is None: 
         return Yhat
     return np.sum(Yhat == Y)/float(len(Y))
@@ -334,17 +319,14 @@ def recover_curve(X, Y, save_dir,
     list_epochs = np.unique([int(f.split(keyword)[1].split('.')[0]) \
                              for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if keyword in f])
     accs = np.zeros(len(list_epochs))
-    load_weights_file = None
+    
     if verbose: start = time.time()
-    for i,epoch in enumerate(list_epochs):
-        if keyword is not 'epoch': 
-            load_weights_file= os.path.join(save_dir, 'checkpoints', '%s%s'%(keyword, epoch))
+    for i, epoch in enumerate(list_epochs):
         accs[i] = build_graph_and_predict(X, save_dir,
                                           Y=Y,
                                           num_classes=num_classes,
                                           gpu_id=gpu_id,
-                                          load_epoch=epoch,
-                                          load_weights_file=load_weights_file)
+                                          load_epoch=epoch)
         if verbose:
             print('\rRecovered accuracy for %s %s/%s: %.2f (%.2f s elapsed)'
                   %(keyword, i+1, len(list_epochs), accs[i], time.time()-start), end='')
@@ -522,10 +504,11 @@ def get_margins(X, Y, save_dir, arch, sn_fc=True, beta=1.):
     return margins
 
 
-def get_weights(save_dir, arch, num_classes=10, num_channels=3):    
+def get_weights(save_dir, arch, num_classes=10, num_channels=3, load_epoch=None):    
     """Grab all weights from graph"""
     
-    load_epoch = latest_epoch(save_dir)
+    if load_epoch is None:
+        load_epoch = latest_epoch(save_dir)
     tf.reset_default_graph()
     graph = graph_builder_wrapper(arch, save_dir=save_dir, num_classes=num_classes,
                                   update_collection='_', num_channels=num_channels)
@@ -536,10 +519,12 @@ def get_weights(save_dir, arch, num_classes=10, num_channels=3):
     return d
 
 
-def get_sn_weights(save_dir, arch, num_classes=10, beta=1, print_svs=False):    
+def get_sn_weights(save_dir, arch, num_classes=10, beta=1, print_svs=False, load_epoch=None):    
     """Grab all weights from spectrally normalized graph"""
     
-    load_epoch = latest_epoch(save_dir)
+    if load_epoch is None:
+        load_epoch = latest_epoch(save_dir)
+        
     tf.reset_default_graph()
     graph = graph_builder_wrapper(arch, num_classes=num_classes, beta=beta, update_collection='_')
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
@@ -625,13 +610,14 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0):
     
     
 def get_overall_sn(save_dir, arch, num_classes=10, verbose=True, return_snorms=False,
-                   num_channels=3, seed=0):
+                   num_channels=3, seed=0, load_epoch=None):
     """Gets the overall spectral norm of a network with specified weights"""
 
-    d = get_weights(save_dir, arch, num_classes=num_classes, num_channels=num_channels)
+    d = get_weights(save_dir, arch, num_classes=num_classes,
+                    num_channels=num_channels, load_epoch=load_epoch)
     
     s_norms = {}
-    for i in d.keys():
+    for i in sorted(d.keys()):
         if 'weights' in i:
             if 'conv' in i:
                 s_norms[i] = power_iteration_conv_tf(d[i], seed=seed)[0]
