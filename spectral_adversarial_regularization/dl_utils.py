@@ -55,7 +55,7 @@ def graph_builder_wrapper(arch,
     
     if adv in ['wrm', 'fgm', 'pgm']:
         if adv == 'wrm':
-            adv_x = ad.wrm(input_data, fc_out, eps=eps, model=arch, k=15,
+            adv_x = ad.wrm(input_data, fc_out, eps=eps, order=2, model=arch, k=15,
                            num_classes=num_classes, graph_beta=beta)
         elif adv == 'fgm':
             adv_x = ad.fgm(input_data, fc_out, eps=eps, order=2)
@@ -278,14 +278,16 @@ def latest_epoch(save_dir):
 
 def predict_labels(X, graph, save_dir, 
                    batch_size=100,
-                   load_epoch=None):
+                   load_epoch=None,
+                   gpu_prop=0.2):
     """Use trained model to predict"""
     
     # Load from checkpoint corresponding to latest epoch if none given
     if load_epoch is None:
         load_epoch = latest_epoch(save_dir)
 
-    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
+                                          gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
         graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))        
         return predict_labels_in_sess(X, graph, sess, batch_size=batch_size)
 
@@ -296,14 +298,15 @@ def build_graph_and_predict(X, save_dir, arch,
                             gpu_id=0,
                             beta=1.,
                             num_channels=3,
-                            load_epoch=None):
+                            load_epoch=None,
+                            gpu_prop=0.2):
     """Build a tensorflow graph and predict labels"""
     
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
         graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir, beta=beta,
                                       update_collection='_', num_channels=num_channels)
-        Yhat = predict_labels(X, graph, save_dir, load_epoch=load_epoch)
+        Yhat = predict_labels(X, graph, save_dir, load_epoch=load_epoch, gpu_prop=gpu_prop)
     if Y is None: 
         return Yhat
     return np.sum(Yhat == Y)/float(len(Y))
@@ -504,7 +507,7 @@ def get_margins(X, Y, save_dir, arch, sn_fc=True, beta=1.):
     return margins
 
 
-def get_weights(save_dir, arch, num_classes=10, num_channels=3, load_epoch=None):    
+def get_weights(save_dir, arch, num_classes=10, beta=1, num_channels=3, load_epoch=None):    
     """Grab all weights from graph"""
     
     if load_epoch is None:
@@ -519,21 +522,22 @@ def get_weights(save_dir, arch, num_classes=10, num_channels=3, load_epoch=None)
     return d
 
 
-def get_sn_weights(save_dir, arch, num_classes=10, beta=1, print_svs=False, load_epoch=None):    
+def get_sn_weights(save_dir, arch, num_classes=10, beta=1., num_channels=3, load_epoch=None, verbose=False):    
     """Grab all weights from spectrally normalized graph"""
     
     if load_epoch is None:
         load_epoch = latest_epoch(save_dir)
-        
+
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(arch, num_classes=num_classes, beta=beta, update_collection='_')
+    graph = graph_builder_wrapper(arch, save_dir=save_dir, num_classes=num_classes, beta=beta,
+                                  update_collection='_', num_channels=num_channels)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
         d = {v.name:sess.run(v) for v in tf.trainable_variables()}
         for v in tf.get_collection('w_after_sn'):
             key = v.name.split('_SN')[0]+':0'
             d[key] = sess.run(v)
-            if print_svs:
+            if verbose:
                 dim = d[key].shape[-1]
                 print('%30s with shape %15s and top 2 sv(s): %s' \
                       %(key, np.shape(d[key]),
@@ -579,6 +583,8 @@ def power_iteration_tf(W, Ip=20, seed=0):
 def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0):
     """Power method for computing top singular value of a convolution operation using W.
        NOTE: resets tensorflow graph
+       Also, note that if you set stride to 1 when the network is trained with stride = 2, 
+       the output will be twice as large as expected
     """
     
     u_dims = [1, length, width, W.shape[-2]]
@@ -610,12 +616,16 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0):
     
     
 def get_overall_sn(save_dir, arch, num_classes=10, verbose=True, return_snorms=False,
-                   num_channels=3, seed=0, load_epoch=None):
+                   num_channels=3, seed=0, load_epoch=None, sn_network=False, beta=1.):
     """Gets the overall spectral norm of a network with specified weights"""
 
-    d = get_weights(save_dir, arch, num_classes=num_classes,
-                    num_channels=num_channels, load_epoch=load_epoch)
-    
+    if sn_network:
+        d = get_sn_weights(save_dir, arch, num_classes=num_classes,
+                           num_channels=num_channels, load_epoch=load_epoch, beta=beta)
+    else:
+        d = get_weights(save_dir, arch, num_classes=num_classes,
+                        num_channels=num_channels, load_epoch=load_epoch)
+        
     s_norms = {}
     for i in sorted(d.keys()):
         if 'weights' in i:

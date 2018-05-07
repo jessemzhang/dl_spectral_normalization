@@ -34,7 +34,7 @@ def project_back_onto_unit_ball(x_adv, x, eps=0.3, order=2):
     return x+delta/adj_norms
 
 
-def fgm(x, preds, y=None, eps=0.3, order=np.inf, model=None, clip_min=None, clip_max=None,
+def fgm(x, preds, y=None, eps=0.3, order=2, model=None, clip_min=None, clip_max=None,
         reuse=True, update_collection='_', graph_beta=1.0, num_classes=10):
     """
     TensorFlow implementation of the Fast Gradient Method. Code adapted from
@@ -215,7 +215,7 @@ def build_graph_and_gen_adv_examples(X, arch, load_dir, num_classes=10, beta=1, 
 
 def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_channels=3,
                                   verbose=True, gpu_id=0, gpu_prop=0.2, load_epoch=None,
-                                  method=fgm, **kwargs):
+                                  fix_adv=False, method=fgm, **kwargs):
     """For a trained network, generate and get accuracy for adversarially-perturbed samples"""
     
     num_classes = len(np.unique(Y))
@@ -240,6 +240,15 @@ def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_cha
             
             # Generate adversarial samples and predict
             X_adv = gen_adv_examples_in_sess(X, graph, sess, method=method, model=arch, graph_beta=beta, **kwargs)
+            
+            # Gradients for some examples will sometimes be zero.. ignore this
+            if fix_adv:
+                reduc_ind = tuple(xrange(1, len(X.shape)))
+                mag_delta = np.sqrt(np.sum(np.square(X_adv-X), axis=reduc_ind))
+                keep_inds = mag_delta > 1e-4
+                if np.sum(keep_inds) > 0:
+                    X_adv, Y = X_adv[keep_inds], Y[keep_inds]
+            
             Yhat_adv = dl_utils.predict_labels_in_sess(X_adv, graph, sess)
 
     accs_adv = np.sum(Yhat_adv == Y)/float(len(Y))
