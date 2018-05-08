@@ -200,7 +200,9 @@ def build_graph_and_gen_adv_examples(X, arch, load_dir, num_classes=10, beta=1, 
     """Build a tensorflow graph and generate adversarial examples"""
     
     if load_epoch is None:
-        load_epoch = dl_utils.latest_epoch(load_dir)
+        load_epoch = latest_epoch(load_dir)
+    else:
+        load_epoch = np.min((dl_utils.latest_epoch(load_dir), load_epoch))
         
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
@@ -231,7 +233,10 @@ def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_cha
                                               gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
             if d is None:
                 if load_epoch is None:
-                    load_epoch = dl_utils.latest_epoch(load_dir)
+                    load_epoch = latest_epoch(load_dir)
+                else:
+                    load_epoch = np.min((dl_utils.latest_epoch(load_dir), load_epoch))
+                    
                 graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
 
             else:

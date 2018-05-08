@@ -113,8 +113,10 @@ def inception_sn(input_data, num_classes=10, wd=0, update_collection=None, beta=
     return fc
 
 
-def inception_sar(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None):
-    """Mini-inception architecture with spectral adversarial regularization"""
+def inception_snl2(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None):
+    """Mini-inception architecture with spectral normalization on all layers except last one, 
+       which can be L2 regularized
+    """
 
     layer1 = tf.nn.relu(sn.conv2d(input_data, [3, 3, 3, 96], scope_name='conv1',
                                   update_collection=update_collection, beta=beta, reuse=reuse))

@@ -101,8 +101,9 @@ def alexnet_sn(input_data, num_classes=10, wd=0, update_collection=None, beta=1.
     return fc
 
 
-def alexnet_sar(input_data, num_classes, wd=0, update_collection=None, beta=1., reuse=None):
-    """AlexNet architecture with spectral adversarial regularization
+def alexnet_snl2(input_data, num_classes, wd=0, update_collection=None, beta=1., reuse=None):
+    """AlexNet architecture with spectral normalization on all layers except last one, which
+       can be L2 regularized
         two [convolution 5x5 -> max-pool 3x3 -> local-response-normalization] modules 
         followed by two fully connected layers with 384 and 192 hidden units, respectively. 
         Finally a NUM_CLASSES-way linear layer is used for prediction

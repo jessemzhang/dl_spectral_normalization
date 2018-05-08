@@ -119,7 +119,6 @@ def graph_builder_wrapper(arch,
 def train(Xtr, Ytr, graph, save_dir,
           val_set=None,
           Ip=15,
-          step_adv=None,
           lr_initial=0.01,
           seed=0,
           num_epochs=100,
@@ -246,11 +245,15 @@ def build_graph_and_train(Xtr, Ytr, save_dir, arch,
                                           wd=wd, beta=beta, num_channels=num_channels)
             tr_losses, tr_accs = train(Xtr, Ytr, graph, save_dir, **kwargs)
         else:
+            
             graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir,
                                           wd=wd, beta=beta, num_channels=num_channels, update_collection='_')
             if verbose:
                 print('Model already exists.. loading trained model..')
-        Ytrhat = predict_labels(Xtr, graph, save_dir)
+                
+        if 'gpu_prop' in kwargs:
+            gpu_prop = kwargs.get('gpu_prop', "default value")
+        Ytrhat = predict_labels(Xtr, graph, save_dir, gpu_prop=gpu_prop)
         train_acc = np.sum(Ytrhat == Ytr)/float(len(Ytr))
 
     if verbose:
@@ -276,7 +279,7 @@ def latest_epoch(save_dir):
                 for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if 'epoch' in f])
 
 
-def predict_labels(X, graph, save_dir, 
+def predict_labels(X, graph, load_dir, 
                    batch_size=100,
                    load_epoch=None,
                    gpu_prop=0.2):
@@ -284,15 +287,17 @@ def predict_labels(X, graph, save_dir,
     
     # Load from checkpoint corresponding to latest epoch if none given
     if load_epoch is None:
-        load_epoch = latest_epoch(save_dir)
+        load_epoch = latest_epoch(load_dir)
+    else:
+        load_epoch = np.min((latest_epoch(load_dir), load_epoch))
 
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
                                           gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
-        graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))        
+        graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))        
         return predict_labels_in_sess(X, graph, sess, batch_size=batch_size)
 
 
-def build_graph_and_predict(X, save_dir, arch,
+def build_graph_and_predict(X, load_dir, arch,
                             Y=None,
                             num_classes=10,
                             gpu_id=0,
@@ -304,15 +309,15 @@ def build_graph_and_predict(X, save_dir, arch,
     
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
-        graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir, beta=beta,
+        graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=load_dir, beta=beta,
                                       update_collection='_', num_channels=num_channels)
-        Yhat = predict_labels(X, graph, save_dir, load_epoch=load_epoch, gpu_prop=gpu_prop)
+        Yhat = predict_labels(X, graph, load_dir, load_epoch=load_epoch, gpu_prop=gpu_prop)
     if Y is None: 
         return Yhat
     return np.sum(Yhat == Y)/float(len(Y))
         
 
-def recover_curve(X, Y, save_dir,
+def recover_curve(X, Y, load_dir,
                   num_classes=10,
                   gpu_id=0,
                   verbose=True,
@@ -320,12 +325,12 @@ def recover_curve(X, Y, save_dir,
     """Evaluate performance on a dataset during training"""
     
     list_epochs = np.unique([int(f.split(keyword)[1].split('.')[0]) \
-                             for f in os.listdir(os.path.join(save_dir, 'checkpoints')) if keyword in f])
+                             for f in os.listdir(os.path.join(load_dir, 'checkpoints')) if keyword in f])
     accs = np.zeros(len(list_epochs))
     
     if verbose: start = time.time()
     for i, epoch in enumerate(list_epochs):
-        accs[i] = build_graph_and_predict(X, save_dir,
+        accs[i] = build_graph_and_predict(X, load_dir,
                                           Y=Y,
                                           num_classes=num_classes,
                                           gpu_id=gpu_id,
@@ -338,17 +343,17 @@ def recover_curve(X, Y, save_dir,
     return accs
 
 
-def recover_train_and_test_curves(Xtr, Ytr, Xtt, Ytt, save_dir,
+def recover_train_and_test_curves(Xtr, Ytr, Xtt, Ytt, load_dir,
                                   num_classes=10,
                                   gpu_id=0,
                                   verbose=True):
     """Recover training and test curves"""
     
-    train_accs = recover_curve(Xtr, Ytr, save_dir,
+    train_accs = recover_curve(Xtr, Ytr, load_dir,
                                num_classes=num_classes,
                                gpu_id=gpu_id,
                                verbose=verbose)
-    test_accs = recover_curve(Xtt, Ytt, save_dir,
+    test_accs = recover_curve(Xtt, Ytt, load_dir,
                               num_classes=num_classes,
                               gpu_id=gpu_id,
                               verbose=verbose)
@@ -366,24 +371,30 @@ def get_embedding_in_sess(X, graph, sess, batch_size=100):
     return embedding
 
 
-def get_embedding(X, save_dir, arch, num_classes=10, beta=1., batch_size=100, sn_fc=False):
+def get_embedding(X, load_dir, arch, num_classes=10, num_channels=3, beta=1., 
+                  batch_size=100, sn_fc=False, load_epoch=None, gpu_prop=0.2):
     """recovers the representation of the data at the layer before the softmax layer
        Use sn_fc to indicate that last layer (should be named 'fc/weights:0') needs to be
          spectrally normalized.
     """
     
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir, 
-                                  beta=beta, update_collection='_')
-    load_epoch = latest_epoch(save_dir)
+    graph = graph_builder_wrapper(arch, num_classes=num_classes, num_channels=num_channels,
+                                  save_dir=load_dir, beta=beta, update_collection='_')
+    
+    if load_epoch is None:
+        load_epoch = latest_epoch(load_dir)
+    else:
+        load_epoch = np.min((latest_epoch(load_dir), load_epoch))
 
     if sn_fc:
         assert 'fc/weights:0' in [v.name for v in tf.global_variables()]
         W_fc_tensor = [v for v in tf.global_variables() if v.name == 'fc/weights:0'][0]
         b_fc_tensor = [v for v in tf.global_variables() if v.name == 'fc/bias:0'][0]
 
-    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
-        graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
+                                          gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
+        graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
 
         # spectral normalization on last layer (fully connected)
         if sn_fc:
@@ -392,22 +403,54 @@ def get_embedding(X, save_dir, arch, num_classes=10, beta=1., batch_size=100, sn
             sess.run([W_fc_tensor.assign(W_fc/sigma), b_fc_tensor.assign(b_fc/sigma)])
 
         return get_embedding_in_sess(X, graph, sess, batch_size=batch_size)
+    
+    
+def get_grads_wrt_samples(X, Y, load_dir, arch, num_classes=10, num_channels=3, beta=1., 
+                          batch_size=100, load_epoch=None, gpu_prop=0.2):
+    """Computes gradients with respect to samples"""
+    
+    if load_epoch is None:
+        load_epoch = latest_epoch(load_dir)
+    else:
+        load_epoch = np.min((latest_epoch(load_dir), load_epoch))
+
+    tf.reset_default_graph()
+    graph = graph_builder_wrapper(arch, num_classes=num_classes, num_channels=num_channels,
+                                  save_dir=load_dir, beta=beta, update_collection='_')
+
+    grad, = tf.gradients(graph['total_loss'], graph['input_data'])
+
+    g = np.zeros(np.shape(X))
+
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
+                                          gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
+
+        graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+
+        for i in range(0, len(X), batch_size):
+            g_ = sess.run(grad, feed_dict={graph['input_data']: X[i:i+batch_size],
+                                           graph['input_labels']: Y[i:i+batch_size]})
+            g[i:i+batch_size] = g_
+            
+        return g
 
     
-def check_weights_svs(save_dir, arch, num_classes=10, n=2, load_epoch=None, beta=1.):    
+def check_weights_svs(load_dir, arch, num_classes=10, n=2, load_epoch=None, beta=1.):    
     """Check singular value of all weights"""
     
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir,
+    graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=load_dir,
                                   update_collection='_', beta=beta)
     
     if load_epoch is None:
-        load_epoch = latest_epoch(save_dir)
-    
+        load_epoch = latest_epoch(load_dir)
+    else:
+        load_epoch = np.min((latest_epoch(load_dir), load_epoch))
+        
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
 
         # Grab all weights
-        graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+        graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
         
         for tfvar in tf.get_collection('w_after_sn'):
             if 'weights' in tfvar.name:
@@ -441,17 +484,17 @@ def extract_curve_tensorboard(tb_log_file, curve='loss'):
     return np.array(values)
 
 
-def extract_train_valid_tensorboard(save_dir, curve='accuracy', show_plot=False, only_final_value=False):
+def extract_train_valid_tensorboard(load_dir, curve='accuracy', show_plot=False, only_final_value=False):
     """For a particular model, grab the tfevents training and validation curves"""
 
     # get train
-    event_file = sorted(os.listdir(os.path.join(save_dir, 'train')))[0]
-    tb_log_file = os.path.join(save_dir, 'train', event_file)
+    event_file = sorted(os.listdir(os.path.join(load_dir, 'train')))[0]
+    tb_log_file = os.path.join(load_dir, 'train', event_file)
     train_values = extract_curve_tensorboard(tb_log_file, curve=curve)
 
     # get validation
-    event_file = sorted(os.listdir(os.path.join(save_dir, 'validation')))[0]
-    tb_log_file = os.path.join(save_dir, 'validation', event_file)
+    event_file = sorted(os.listdir(os.path.join(load_dir, 'validation')))[0]
+    tb_log_file = os.path.join(load_dir, 'validation', event_file)
     valid_values = extract_curve_tensorboard(tb_log_file, curve=curve)
 
     if show_plot:
@@ -481,13 +524,13 @@ def plot_stacked_hist(v0, v1, labels=None):
     plt.legend()
 
 
-def get_margins(X, Y, save_dir, arch, sn_fc=True, beta=1.):
+def get_margins(X, Y, load_dir, arch, sn_fc=True, beta=1.):
     """Compute margins for X (margin = last layer difference between true label and 
        highest value that's not the true label)
     """
     
     num_classes = len(np.unique(Y))
-    embeddings = get_embedding(X, save_dir, arch, num_classes=10, beta=beta, sn_fc=sn_fc)
+    embeddings = get_embedding(X, load_dir, arch, num_classes=10, beta=beta, sn_fc=sn_fc)
 #    embeddings = np.exp(embeddings)
 #    embeddings /= np.sum(embeddings, 1).reshape(-1, 1)
     margins = np.zeros(len(embeddings))
@@ -507,32 +550,37 @@ def get_margins(X, Y, save_dir, arch, sn_fc=True, beta=1.):
     return margins
 
 
-def get_weights(save_dir, arch, num_classes=10, beta=1, num_channels=3, load_epoch=None):    
+def get_weights(load_dir, arch, num_classes=10, beta=1, num_channels=3, load_epoch=None):    
     """Grab all weights from graph"""
     
     if load_epoch is None:
-        load_epoch = latest_epoch(save_dir)
+        load_epoch = latest_epoch(load_dir)
+    else:
+        load_epoch = np.min((latest_epoch(load_dir), load_epoch))
+        
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(arch, save_dir=save_dir, num_classes=num_classes,
+    graph = graph_builder_wrapper(arch, save_dir=load_dir, num_classes=num_classes,
                                   update_collection='_', num_channels=num_channels)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
-        graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+        graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
         d = {v.name:sess.run(v) for v in tf.trainable_variables()}
 
     return d
 
 
-def get_sn_weights(save_dir, arch, num_classes=10, beta=1., num_channels=3, load_epoch=None, verbose=False):    
+def get_sn_weights(load_dir, arch, num_classes=10, beta=1., num_channels=3, load_epoch=None, verbose=False):    
     """Grab all weights from spectrally normalized graph"""
     
     if load_epoch is None:
-        load_epoch = latest_epoch(save_dir)
+        load_epoch = latest_epoch(load_dir)
+    else:
+        load_epoch = np.min((latest_epoch(load_dir), load_epoch))
 
     tf.reset_default_graph()
-    graph = graph_builder_wrapper(arch, save_dir=save_dir, num_classes=num_classes, beta=beta,
+    graph = graph_builder_wrapper(arch, save_dir=load_dir, num_classes=num_classes, beta=beta,
                                   update_collection='_', num_channels=num_channels)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
-        graph['saver'].restore(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
+        graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
         d = {v.name:sess.run(v) for v in tf.trainable_variables()}
         for v in tf.get_collection('w_after_sn'):
             key = v.name.split('_SN')[0]+':0'
@@ -615,15 +663,15 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0):
         return sess.run(sigma).reshape(-1)
     
     
-def get_overall_sn(save_dir, arch, num_classes=10, verbose=True, return_snorms=False,
+def get_overall_sn(load_dir, arch, num_classes=10, verbose=True, return_snorms=False,
                    num_channels=3, seed=0, load_epoch=None, sn_network=False, beta=1.):
     """Gets the overall spectral norm of a network with specified weights"""
 
     if sn_network:
-        d = get_sn_weights(save_dir, arch, num_classes=num_classes,
+        d = get_sn_weights(load_dir, arch, num_classes=num_classes,
                            num_channels=num_channels, load_epoch=load_epoch, beta=beta)
     else:
-        d = get_weights(save_dir, arch, num_classes=num_classes,
+        d = get_weights(load_dir, arch, num_classes=num_classes,
                         num_channels=num_channels, load_epoch=load_epoch)
         
     s_norms = {}

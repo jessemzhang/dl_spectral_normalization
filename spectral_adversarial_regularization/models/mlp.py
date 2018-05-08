@@ -25,8 +25,10 @@ def mlp1_sn(input_data, num_classes=10, wd=0, update_collection=None, beta=1., r
     return fc
 
 
-def mlp1_sar(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None):
-    """1-hidden-layer Multilayer Perceptron architecture with spectral adversarial regularization"""
+def mlp1_snl2(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None):
+    """1-hidden-layer Multilayer Perceptron architecture with spectral normalization on all layers
+       except last one, which can be L2 regularized
+    """
 
     hidden = tf.nn.relu(sn.linear(input_data, 512, scope_name='hidden', xavier=True,
                                   update_collection=update_collection, beta=beta, reuse=reuse))
@@ -62,8 +64,10 @@ def mlp3_sn(input_data, num_classes=10, wd=0, update_collection=None, beta=1., r
     return fc
 
 
-def mlp3_sar(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None):
-    """3-hidden-layer Multilayer Perceptron architecture with spectral adversarial regularization"""
+def mlp3_snl2(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None):
+    """3-hidden-layer Multilayer Perceptron architecture with spectral normalization on all layers 
+       except last one, which can be L2 regularized
+    """
 
     hidden1 = tf.nn.relu(sn.linear(input_data, 512, scope_name='hidden1', xavier=True,
                                    update_collection=update_collection, beta=beta, reuse=reuse))
