@@ -628,7 +628,7 @@ def power_iteration_tf(W, Ip=20, seed=0):
         return sess.run(sigma).reshape(-1)
 
 
-def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0):
+def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0, padding='SAME'):
     """Power method for computing top singular value of a convolution operation using W.
        NOTE: resets tensorflow graph
        Also, note that if you set stride to 1 when the network is trained with stride = 2, 
@@ -640,9 +640,9 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0):
     def power_iteration_conv(u, w_mat, Ip):
         u_ = u
         for _ in range(Ip):
-            v_ = l2_norm(tf.nn.conv2d(u_, w_mat, strides=[1, stride, stride, 1], padding='SAME'))
+            v_ = l2_norm(tf.nn.conv2d(u_, w_mat, strides=[1, stride, stride, 1], padding=padding))
             u_ = l2_norm(tf.nn.conv2d_transpose(v_, w_mat, u_dims,
-                                                strides=[1, stride, stride, 1], padding='SAME'))
+                                                strides=[1, stride, stride, 1], padding=padding))
         return u_, v_
     
     tf.reset_default_graph()
@@ -655,7 +655,7 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0):
 
     w_mat = tf.Variable(W)
     u_hat, v_hat = power_iteration_conv(u, w_mat, Ip)
-    z = tf.nn.conv2d(u_hat, w_mat, strides=[1, stride, stride, 1], padding='SAME')
+    z = tf.nn.conv2d(u_hat, w_mat, strides=[1, stride, stride, 1], padding=padding)
     sigma = tf.reduce_sum(tf.multiply(z, v_hat))
     
     with tf.Session() as sess:
@@ -664,7 +664,7 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0):
     
     
 def get_overall_sn(load_dir, arch, num_classes=10, verbose=True, return_snorms=False,
-                   num_channels=3, seed=0, load_epoch=None, sn_network=False, beta=1.):
+                   num_channels=3, seed=0, load_epoch=None, sn_network=False, beta=1., gpu_prop=0.2):
     """Gets the overall spectral norm of a network with specified weights"""
 
     if sn_network:
@@ -675,10 +675,21 @@ def get_overall_sn(load_dir, arch, num_classes=10, verbose=True, return_snorms=F
                         num_channels=num_channels, load_epoch=load_epoch)
         
     s_norms = {}
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
+                                          gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
+        
+        conv_ops_dict = {i.name.split('/')[0]: {'stride':int(i.get_attr('strides')[1]), 
+                                                'padding':i.get_attr('padding'), 
+                                                'length':i.inputs[0].get_shape().as_list()[1],
+                                                'width':i.inputs[0].get_shape().as_list()[2],
+                                                'seed':seed} 
+                         for i in sess.graph.get_operations()
+                         if 'Conv2D' in i.name and 'gradients' not in i.name}
+
     for i in sorted(d.keys()):
         if 'weights' in i:
             if 'conv' in i:
-                s_norms[i] = power_iteration_conv_tf(d[i], seed=seed)[0]
+                s_norms[i] = power_iteration_conv_tf(d[i], **conv_ops_dict[i.split('/weights')[0]])[0]
             else:
                 s_norms[i] = power_iteration_tf(d[i], seed=seed)[0]
 

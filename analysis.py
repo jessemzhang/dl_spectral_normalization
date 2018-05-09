@@ -24,7 +24,7 @@ def train_network(Xtr, Ytr, val_set, arch, save_dir, eps=0.3, adv=None,
                                        early_stop_acc_num=25,
                                        gpu_prop=gpu_prop,
                                        beta=beta)
-    
+
 
 def get_adv_acc_curve(X, Y, save_dir, arch, eps_list, order=2, method=ad.pgm, beta=1., load_epoch=25):
     """Sweeps through a list of eps for attacking a network, generating an adv performance curve"""
@@ -42,7 +42,7 @@ def get_adv_acc_curve(X, Y, save_dir, arch, eps_list, order=2, method=ad.pgm, be
     return acc, adv_accs
 
 
-def plot_acc_curves(adv_results, x_vals, title='PGM attacks', sort_func=None):
+def plot_acc_curves(adv_results, x_vals, title='PGM attacks', sort_func=None, logy=True):
     """ adv_results should be a set of curves generated from get_adv_acc_curve
         (i.e. it's a dictionary where keys describe different networks)
         Plots all of these curves against one another.
@@ -58,14 +58,17 @@ def plot_acc_curves(adv_results, x_vals, title='PGM attacks', sort_func=None):
         if len(adv_results[k]) > 2:
             plt.plot(x_vals, 1.-adv_results[k][1], c=colors[i], label='%s (test acc %.3f, sn %.3e)'\
                      %(k, adv_results[k][0], adv_results[k][2]))
-        else:
+        elif len(adv_results[k]) > 1:
             plt.plot(x_vals, 1.-adv_results[k][1], c=colors[i], label='%s (test acc %.3f)'\
                      %(k, adv_results[k][0]))
+        else:
+            plt.plot(x_vals, 1.-adv_results[k][0], c=colors[i], label=k)
 
     plt.xlabel(r'$\epsilon/C_2$')
     plt.ylabel('Error')
-    plt.ylim(1e-2, 1e0)
-    plt.yscale('log')
+    if logy:
+        plt.ylim(1e-2, 1e0)
+        plt.yscale('log')
     plt.title(title)
     plt.legend(bbox_to_anchor=(1.4, 1))
     plt.grid()
@@ -76,9 +79,9 @@ def beta_sweep_curves(X, Y, adv, eps_list, arch1, arch2, load_epoch=25):
     """Generates a set of adv performance curves from networks of different betas"""
 
     adv_results = {}
-    for f in sorted(os.listdir('save_weights_final/mnist/')):
+    for f in sorted(os.listdir('save_weights/mnist/')):
         if adv in f and 'rand' not in f and 'backup' not in f:
-            save_dir = os.path.join('save_weights_final', 'mnist', f)
+            save_dir = os.path.join('save_weights', 'mnist', f)
             if 'beta' in f:
                 arch = arch1
                 beta = float(f.split('beta')[1])
@@ -109,7 +112,7 @@ def get_curves_for_arch(data, labeltype, arch, methods, eps_list, archname, beta
     
     adv_results = {}
     for method in methods:
-        save_dir = os.path.join('save_weights_final', 'cifar10', archname,
+        save_dir = os.path.join('save_weights', 'cifar10', archname,
                                 '%s_%s_%s'%(archname, method, labeltype))
         s_norm = dl_utils.get_overall_sn(save_dir, arch, num_channels=3, load_epoch=200)
         tr_acc = dl_utils.build_graph_and_predict(Xtr, save_dir, arch, Y=Ytr, beta=beta,

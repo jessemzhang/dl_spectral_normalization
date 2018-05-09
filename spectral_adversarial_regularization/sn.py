@@ -18,9 +18,13 @@ def l2_norm(input_x, epsilon=1e-12):
     return input_x_norm
 
 
-def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=True, u_width=28, beta=1.,
+def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=True, beta=1.,
            padding='SAME', spectral_norm=True, update_collection=None, xavier=True, bn=False, reuse=None):
     """2D convolution layer with spectral normalization option"""
+    
+    shape = input_x.get_shape().as_list()
+    assert shape[1] == shape[2]
+    u_width = shape[1]
     
     output_len = kernel_size[3]
     with tf.variable_scope(scope_name, reuse=reuse):
