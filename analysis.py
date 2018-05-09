@@ -42,7 +42,7 @@ def get_adv_acc_curve(X, Y, save_dir, arch, eps_list, order=2, method=ad.pgm, be
     return acc, adv_accs
 
 
-def plot_acc_curves(adv_results, x_vals, title='PGM attacks', sort_func=None, logy=True):
+def plot_acc_curves(adv_results, x_vals, title='PGM attacks', sort_func=None, logy=True, logx=False):
     """ adv_results should be a set of curves generated from get_adv_acc_curve
         (i.e. it's a dictionary where keys describe different networks)
         Plots all of these curves against one another.
@@ -65,6 +65,8 @@ def plot_acc_curves(adv_results, x_vals, title='PGM attacks', sort_func=None, lo
             plt.plot(x_vals, 1.-adv_results[k][0], c=colors[i], label=k)
 
     plt.xlabel(r'$\epsilon/C_2$')
+    if logx:
+        plt.xscale('log')
     plt.ylabel('Error')
     if logy:
         plt.ylim(1e-2, 1e0)
@@ -80,7 +82,7 @@ def beta_sweep_curves(X, Y, adv, eps_list, arch1, arch2, load_epoch=25):
 
     adv_results = {}
     for f in sorted(os.listdir('save_weights/mnist/')):
-        if adv in f and 'rand' not in f and 'backup' not in f:
+        if adv in f and 'rand' not in f and 'backup' not in f and 'pickle' not in f:
             save_dir = os.path.join('save_weights', 'mnist', f)
             if 'beta' in f:
                 arch = arch1

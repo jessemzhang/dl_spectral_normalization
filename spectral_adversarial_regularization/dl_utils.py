@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 import adversarial as ad
 from sklearn.utils import shuffle
 
-import models.alexnet_small as model
 
 def loss(g, Y, mean=True, add_other_losses=True):
     """Cross-entropy loss between labels and output of linear activation function"""
@@ -550,7 +549,7 @@ def get_margins(X, Y, load_dir, arch, sn_fc=True, beta=1.):
     return margins
 
 
-def get_weights(load_dir, arch, num_classes=10, beta=1, num_channels=3, load_epoch=None):    
+def get_weights(load_dir, arch, num_classes=10, beta=1, num_channels=3, load_epoch=None, gpu_prop=0.2):    
     """Grab all weights from graph"""
     
     if load_epoch is None:
@@ -561,14 +560,16 @@ def get_weights(load_dir, arch, num_classes=10, beta=1, num_channels=3, load_epo
     tf.reset_default_graph()
     graph = graph_builder_wrapper(arch, save_dir=load_dir, num_classes=num_classes,
                                   update_collection='_', num_channels=num_channels)
-    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
+                                          gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
         graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
         d = {v.name:sess.run(v) for v in tf.trainable_variables()}
 
     return d
 
 
-def get_sn_weights(load_dir, arch, num_classes=10, beta=1., num_channels=3, load_epoch=None, verbose=False):    
+def get_sn_weights(load_dir, arch, num_classes=10, beta=1., num_channels=3,
+                   load_epoch=None, verbose=False, gpu_prop=0.2):
     """Grab all weights from spectrally normalized graph"""
     
     if load_epoch is None:
@@ -579,7 +580,8 @@ def get_sn_weights(load_dir, arch, num_classes=10, beta=1., num_channels=3, load
     tf.reset_default_graph()
     graph = graph_builder_wrapper(arch, save_dir=load_dir, num_classes=num_classes, beta=beta,
                                   update_collection='_', num_channels=num_channels)
-    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
+                                          gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
         graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
         d = {v.name:sess.run(v) for v in tf.trainable_variables()}
         for v in tf.get_collection('w_after_sn'):
@@ -668,28 +670,29 @@ def get_overall_sn(load_dir, arch, num_classes=10, verbose=True, return_snorms=F
     """Gets the overall spectral norm of a network with specified weights"""
 
     if sn_network:
-        d = get_sn_weights(load_dir, arch, num_classes=num_classes,
+        d = get_sn_weights(load_dir, arch, num_classes=num_classes, gpu_prop=gpu_prop,
                            num_channels=num_channels, load_epoch=load_epoch, beta=beta)
     else:
-        d = get_weights(load_dir, arch, num_classes=num_classes,
+        d = get_weights(load_dir, arch, num_classes=num_classes, gpu_prop=gpu_prop,
                         num_channels=num_channels, load_epoch=load_epoch)
         
     s_norms = {}
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
                                           gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
         
-        conv_ops_dict = {i.name.split('/')[0]: {'stride':int(i.get_attr('strides')[1]), 
-                                                'padding':i.get_attr('padding'), 
-                                                'length':i.inputs[0].get_shape().as_list()[1],
-                                                'width':i.inputs[0].get_shape().as_list()[2],
-                                                'seed':seed} 
+        conv_ops_dict = {'/'.join(i.name.split('/')[:-1]): {'stride':int(i.get_attr('strides')[1]), 
+                                                            'padding':i.get_attr('padding'), 
+                                                            'length':i.inputs[0].get_shape().as_list()[1],
+                                                            'width':i.inputs[0].get_shape().as_list()[2],
+                                                            'seed':seed} 
                          for i in sess.graph.get_operations()
                          if 'Conv2D' in i.name and 'gradients' not in i.name}
 
     for i in sorted(d.keys()):
         if 'weights' in i:
             if 'conv' in i:
-                s_norms[i] = power_iteration_conv_tf(d[i], **conv_ops_dict[i.split('/weights')[0]])[0]
+                key = '/'.join(i.split('/')[:-1])
+                s_norms[i] = power_iteration_conv_tf(d[i], **conv_ops_dict[key])[0]
             else:
                 s_norms[i] = power_iteration_tf(d[i], seed=seed)[0]
 

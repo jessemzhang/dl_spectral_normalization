@@ -3,7 +3,5 @@ __all__ = [
     "inception",
     "mlp",
     "vgg",
-    "alexnet_tightsn",
-    "inception_tightsn",
-    "vgg_tightsn"
+    "elunet"
 ]
