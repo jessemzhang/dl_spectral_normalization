@@ -648,7 +648,7 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0, pad
         return u_, v_
     
     tf.reset_default_graph()
-    if seed is not None: 
+    if seed is not None:
         tf.set_random_seed(seed)
     
     # Initialize u (our "eigenimage")

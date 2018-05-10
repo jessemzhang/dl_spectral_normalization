@@ -26,18 +26,19 @@ def train_network(Xtr, Ytr, val_set, arch, save_dir, eps=0.3, adv=None,
                                        beta=beta)
 
 
-def get_adv_acc_curve(X, Y, save_dir, arch, eps_list, order=2, method=ad.pgm, beta=1., load_epoch=25):
+def get_adv_acc_curve(X, Y, save_dir, arch, eps_list, order=2, method=ad.pgm, beta=1.,
+                      load_epoch=25, num_channels=1):
     """Sweeps through a list of eps for attacking a network, generating an adv performance curve"""
 
     load_epoch = np.min((dl_utils.latest_epoch(save_dir), load_epoch))
     
     adv_accs = np.zeros(len(eps_list))
     acc = dl_utils.build_graph_and_predict(X, save_dir, arch, Y=Y, beta=beta,
-                                           num_channels=1, load_epoch=load_epoch)
+                                           num_channels=num_channels, load_epoch=load_epoch)
     print('Acc on examples: %.4f'%(acc))
     for i, eps in enumerate(eps_list):
         adv_accs[i] = ad.test_net_against_adv_examples(X, Y, save_dir, arch, beta=beta,
-                                                       num_channels=1, method=method,
+                                                       num_channels=num_channels, method=method,
                                                        order=order, eps=eps, load_epoch=load_epoch)
     return acc, adv_accs
 
@@ -53,16 +54,17 @@ def plot_acc_curves(adv_results, x_vals, title='PGM attacks', sort_func=None, lo
     if sort_func is not None:
         keys_in_ord = sorted(adv_results, key=sort_func)
     else:
-        keys_in_ord = adv_results
+        keys_in_ord = sorted(adv_results)
     for i, k in enumerate(keys_in_ord):
-        if len(adv_results[k]) > 2:
+        if len(adv_results[k]) == len(x_vals):
+            plt.plot(x_vals, 1.-adv_results[k], c=colors[i], label=k)
+        elif len(adv_results[k]) > 2:
             plt.plot(x_vals, 1.-adv_results[k][1], c=colors[i], label='%s (test acc %.3f, sn %.3e)'\
                      %(k, adv_results[k][0], adv_results[k][2]))
-        elif len(adv_results[k]) > 1:
+        else:
             plt.plot(x_vals, 1.-adv_results[k][1], c=colors[i], label='%s (test acc %.3f)'\
                      %(k, adv_results[k][0]))
-        else:
-            plt.plot(x_vals, 1.-adv_results[k][0], c=colors[i], label=k)
+            
 
     plt.xlabel(r'$\epsilon/C_2$')
     if logx:
@@ -121,7 +123,8 @@ def get_curves_for_arch(data, labeltype, arch, methods, eps_list, archname, beta
                                                   num_channels=3, load_epoch=200)
         print('Acc on training examples: %.4f'%(tr_acc))
         acc, adv_accs = get_adv_acc_curve(Xtt, Ytt, save_dir, arch, eps_list, order=2,
-                                          method=ad.pgm, beta=beta, load_epoch=200)
+                                          method=ad.pgm, beta=beta, load_epoch=200,
+                                          num_channels=3)
         adv_results[method] = (acc, adv_accs, s_norm, tr_acc)
         
     return adv_results

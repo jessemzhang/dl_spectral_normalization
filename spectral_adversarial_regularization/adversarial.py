@@ -217,10 +217,9 @@ def build_graph_and_gen_adv_examples(X, arch, load_dir, num_classes=10, beta=1, 
 
 def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_channels=3,
                                   verbose=True, gpu_id=0, gpu_prop=0.2, load_epoch=None,
-                                  fix_adv=False, method=fgm, **kwargs):
+                                  fix_adv=False, num_classes=10, method=fgm, **kwargs):
     """For a trained network, generate and get accuracy for adversarially-perturbed samples"""
     
-    num_classes = len(np.unique(Y))
     start = time.time()
         
     # Use previously fitted network which had achieved 100% training accuracy
