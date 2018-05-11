@@ -549,28 +549,9 @@ def get_margins(X, Y, load_dir, arch, sn_fc=True, beta=1.):
     return margins
 
 
-def get_weights(load_dir, arch, num_classes=10, beta=1, num_channels=3, load_epoch=None, gpu_prop=0.2):    
-    """Grab all weights from graph"""
-    
-    if load_epoch is None:
-        load_epoch = latest_epoch(load_dir)
-    else:
-        load_epoch = np.min((latest_epoch(load_dir), load_epoch))
-        
-    tf.reset_default_graph()
-    graph = graph_builder_wrapper(arch, save_dir=load_dir, num_classes=num_classes,
-                                  update_collection='_', num_channels=num_channels)
-    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
-                                          gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
-        graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
-        d = {v.name:sess.run(v) for v in tf.trainable_variables()}
-
-    return d
-
-
-def get_sn_weights(load_dir, arch, num_classes=10, beta=1., num_channels=3,
+def get_weights(load_dir, arch, num_classes=10, beta=1., num_channels=3,
                    load_epoch=None, verbose=False, gpu_prop=0.2):
-    """Grab all weights from spectrally normalized graph"""
+    """Grab all weights from graph (also works for spectrally-normalized models)"""
     
     if load_epoch is None:
         load_epoch = latest_epoch(load_dir)
@@ -666,15 +647,11 @@ def power_iteration_conv_tf(W, length=28, width=28, stride=1, Ip=20, seed=0, pad
     
     
 def get_overall_sn(load_dir, arch, num_classes=10, verbose=True, return_snorms=False,
-                   num_channels=3, seed=0, load_epoch=None, sn_network=False, beta=1., gpu_prop=0.2):
+                   num_channels=3, seed=0, load_epoch=None, beta=1., gpu_prop=0.2):
     """Gets the overall spectral norm of a network with specified weights"""
 
-    if sn_network:
-        d = get_sn_weights(load_dir, arch, num_classes=num_classes, gpu_prop=gpu_prop,
-                           num_channels=num_channels, load_epoch=load_epoch, beta=beta)
-    else:
-        d = get_weights(load_dir, arch, num_classes=num_classes, gpu_prop=gpu_prop,
-                        num_channels=num_channels, load_epoch=load_epoch)
+    d = get_weights(load_dir, arch, num_classes=num_classes, gpu_prop=gpu_prop,
+                    num_channels=num_channels, load_epoch=load_epoch, beta=beta)
         
     s_norms = {}
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
