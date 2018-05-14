@@ -131,6 +131,7 @@ def train(Xtr, Ytr, graph, save_dir,
           gpu_prop=0.2):
     """Train the graph"""
     
+    np.random.seed(seed)
     tf.set_random_seed(seed)
     
     if save_every is None:
@@ -226,16 +227,12 @@ def build_graph_and_train(Xtr, Ytr, save_dir, arch,
                           eps=0.3,
                           wd=0,
                           gpu_id=0,
-                          seed=0,
                           verbose=True,
                           beta=1.,
                           **kwargs):
     """Build tensorflow graph and train"""
     
     tf.reset_default_graph()
-    if seed is not None: 
-        np.random.seed(seed)
-        tf.set_random_seed(seed)
 
     if verbose: start = time.time()
     with tf.device("/gpu:%s"%(gpu_id)):

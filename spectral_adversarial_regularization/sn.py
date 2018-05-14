@@ -19,7 +19,8 @@ def l2_norm(input_x, epsilon=1e-12):
 
 
 def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=True, beta=1.,
-           padding='SAME', spectral_norm=True, update_collection=None, xavier=True, bn=False, reuse=None):
+           padding='SAME', spectral_norm=True, update_collection=None, xavier=True, bn=False,
+           l2_norm=False, wd=0, reuse=None):
     """2D convolution layer with spectral normalization option"""
     
     shape = input_x.get_shape().as_list()
@@ -39,6 +40,9 @@ def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=True,
             weights = weights_spectral_norm(weights, update_collection=update_collection,
                                             tighter_sn=tighter_sn, u_width=u_width, beta=beta,
                                             u_depth=kernel_size[-2], stride=stride, padding=padding)
+        elif l2_norm:
+            weight_decay = tf.multiply(tf.nn.l2_loss(weights), wd, name='weight_loss')
+            tf.add_to_collection('losses', weight_decay)
         conv = tf.nn.conv2d(input_x, weights, strides=[1, stride, stride, 1], padding=padding)
         conv = tf.nn.bias_add(conv, bias)
         if bn:
@@ -67,12 +71,12 @@ def linear(input_x, output_size, scope_name='linear', spectral_norm=True,
         else:
             weights = tf.get_variable('weights', [input_size, output_size], tf.float32, 
                                       initializer=tf.random_normal_initializer(stddev=0.02))
-        if l2_norm:
-            weight_decay = tf.multiply(tf.nn.l2_loss(weights), wd, name='weight_loss')
-            tf.add_to_collection('losses', weight_decay)
         bias = tf.get_variable('bias', output_size, tf.float32, initializer=tf.constant_initializer(0))        
         if spectral_norm:
             weights = weights_spectral_norm(weights, update_collection=update_collection, beta=beta)
+        elif l2_norm:
+            weight_decay = tf.multiply(tf.nn.l2_loss(weights), wd, name='weight_loss')
+            tf.add_to_collection('losses', weight_decay)
         output = tf.matmul(flat_x, weights) + bias
         return output
 
