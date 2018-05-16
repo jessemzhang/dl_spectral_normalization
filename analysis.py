@@ -118,7 +118,7 @@ def plot_acc_curves(adv_results, x_vals, title='PGM attacks', sort_func=None, lo
                 
         else:
             c = colors.pop(0)
-            key = k
+            key = k.upper()
             
         if len(adv_results[k]) == len(x_vals):
             plt.plot(x_vals, 1.-adv_results[k], c=c, label=key)
@@ -343,10 +343,10 @@ def violin_plots_of_norm_output_to_input_ratios(results, norm_input, title=None,
 
     df = pd.DataFrame.from_dict(results_)
     df = pd.melt(df, value_vars=df.columns)
-    plt.figure(figsize=(6, 3))
+    plt.figure(figsize=(4, 3))
     sb.violinplot(x='variable', y='value', cut=0, data=df, scale='width')
     plt.grid()
-    plt.ylabel(r'$||\phi(x)||_2/||x||_2$')
+    plt.ylabel(r'$\Vert\phi(x)\Vert_2/\Vert x\Vert_2$')
     plt.xlabel('')
     if title is not None:
         plt.title(title)
@@ -396,10 +396,12 @@ def get_eps_wrm(Xtr, arch_sn, arch, eps_wrm, load_epoch=25, eps_file=None,
     return results
 
 
-def plot_wrm_robustness(results, C2=None, savename=None, ylabel=None, title=None, wdmode=False):
+def plot_wrm_robustness(results, C2=None, savename=None, ylabel=None, title=None, wdmode=False, logx=True):
     """Plot the epsilon parameter achieved by WRM"""
     
     param = 'wd' if wdmode else 'beta'
+    
+    plt.figure(figsize=(5, 4))
     
     param_list = [float(i.split(param)[1]) for i in sorted(results) if param in i]
     if C2 is not None:
@@ -425,7 +427,8 @@ def plot_wrm_robustness(results, C2=None, savename=None, ylabel=None, title=None
         plt.xlabel(u'$\\lambda$/2')
     else:
         plt.xlabel(u'$\\beta$')
-    plt.xscale('log')
+    if logx:
+        plt.xscale('log')
     if ylabel is None:
         if C2 is not None:
             plt.ylabel(u'$\\epsilon/C_2$')
@@ -434,7 +437,7 @@ def plot_wrm_robustness(results, C2=None, savename=None, ylabel=None, title=None
     else:
         plt.ylabel(ylabel)
     if title is None:
-        plt.title('Adversarial Robustness')
+        plt.title('WRM adversarial robustness')
     else:
         plt.title(title)
     if wdmode:
@@ -447,7 +450,7 @@ def plot_wrm_robustness(results, C2=None, savename=None, ylabel=None, title=None
 
 
 def get_train_test_accs(Xtr, Ytr, Xtt, Ytt, arch_sn, arch, adv=None, num_channels=1, 
-                        load_epoch=25, gpu_prop=0.1, train_test_accs_file=None, 
+                        load_epoch=25, gpu_prop=0.1, train_test_accs_file=None,
                         maindir='save_weights/mnist/', verbose=True, randmode=False, wdmode=False):
     """Scans through the trained networks in a directory and for each network, gets
        train and test accuracies
@@ -460,8 +463,10 @@ def get_train_test_accs(Xtr, Ytr, Xtt, Ytt, arch_sn, arch, adv=None, num_channel
         results = {}
 
     for f in sorted(os.listdir(maindir)):
-        if '0.9' in f and 'rand' in f:
-            continue
+        
+        if 'wrm' in f and 'randlabels' in f:
+            if len(f.split('labels')[-1]) > 0:
+                continue
         
         if f in results:
             continue
@@ -477,6 +482,9 @@ def get_train_test_accs(Xtr, Ytr, Xtt, Ytt, arch_sn, arch, adv=None, num_channel
             save_dir = os.path.join(maindir, f)
 
             if wdmode and 'wd' not in f:
+                continue
+                
+            if not wdmode and 'wd' in f:
                 continue
 
             if 'beta' in f:
@@ -523,6 +531,8 @@ def train_test_accs_to_pd_table(results):
 
 def plot_train_test_accs(results, savename=None, title=None, logx=True, logy=True, ylim=None, wdmode=False):
     """Plots train and test accs from train/test acc results dict"""
+    
+    plt.figure(figsize=(5, 4))
     
     if wdmode:
         param = 'wd'
@@ -644,8 +654,6 @@ def get_perturbation_curves(Xtr, Xtt, arch_sn, arch, adv, eps_list, num_channels
         adv_results = {}
 
     for f in sorted(os.listdir(maindir)):
-        if '0.9' in f and 'rand' in f:
-            continue
         
         if adv in f and 'backup' not in f and 'pickle' not in f:
             save_dir = os.path.join(maindir, f)
@@ -697,7 +705,7 @@ def get_perturbation_curves(Xtr, Xtt, arch_sn, arch, adv, eps_list, num_channels
                 _, adv_results['%s (test_refit)'%(key_base)] = \
                     get_adv_acc_curve(Xtt, Ytthat, save_dir, arch_, eps_list_, method=ad.pgm, **cargs)
 
-    pickle.dump(adv_results, file(curves_file, 'wb'))
+#    pickle.dump(adv_results, file(curves_file, 'wb'))
         
     return adv_results
 
@@ -760,7 +768,7 @@ def plot_perturbation_curves(eps_list, adv_results, mode=1, betas_of_interest=No
         if logy:
             plt.yscale('log')
         if mode == 1:
-            plt.ylabel(u'Train $P_{adv}$-Test $P_{adv}$')
+            plt.ylabel(u'Test $P_{\mathregular{adv}}$-Train $P_{\mathregular{adv}}$')
         else:
             plt.ylabel('Proportion of labels changed')
         if title is None:
@@ -775,3 +783,122 @@ def plot_perturbation_curves(eps_list, adv_results, mode=1, betas_of_interest=No
         if savename is not None:
             plt.savefig(savename.split('.')[0]+'_%s.pdf'%(labeltype), format='pdf', dpi=500, bbox_inches='tight')
         plt.show()
+
+        
+def per_image_whitening(images):
+    "Mimic tensorflow per_image_whitening"
+    orig_shape = images.shape
+    images = images.reshape((images.shape[0], -1))
+    img_means = np.mean(images, axis=1, keepdims=True)
+    img_stds = np.std(images, axis=1, keepdims=True)
+    adj_stds = np.maximum(img_stds, 1.0 / np.sqrt(images.shape[1]))
+    whiten_imgs = (images - img_means) / adj_stds
+    return whiten_imgs.reshape(orig_shape), img_means, adj_stds
+
+
+def inv_per_image_whitening(images, img_means, adj_stds):
+    "Invert whitening operation"
+    orig_shape = images.shape
+    images = images.reshape((images.shape[0], -1))
+    orig_imgs = images * adj_stds + img_means
+    return orig_imgs.reshape(orig_shape)
+
+        
+def perturb_images_wrm_v_wrmsn(X_, Y_, eps, beta, arch, arch_sn, save_dir, save_dir_sn,
+                               preprocess=True, load_epoch=200):
+    """Compare perturbations for wrm v wrmsn"""
+    
+    n = len(X_)
+    
+    if preprocess:    
+        # Whiten images
+        W_, img_means, adj_stds = per_image_whitening(X_)
+
+        # Crop
+        W_ = np.array([i[2:30, 2:30, :] for i in W_])
+        
+    else:
+        W_ = X_
+
+    # Perturb using WRM
+    W_adv, Y_adv, inds = perturb_images(W_, eps, arch, 'wrm', n=None, load_epoch=load_epoch,
+                                        method=ad.pgm, save_dir=save_dir)
+    print('Acc on adv examples: %.4f'%(np.sum(Y_adv == Y_)/float(n)))
+    
+    # Perturb using WRM SN
+    W_adv_sn, Y_adv_sn, inds_sn = perturb_images(W_, eps, arch_sn, 'wrm', n=None, load_epoch=load_epoch,
+                                                 method=ad.pgm, beta=beta, save_dir=save_dir_sn)
+    print('Acc on adv examples: %.4f'%(np.sum(Y_adv_sn == Y_)/float(n)))
+    
+    if preprocess:
+        # Undo cropping
+        def pad(x):
+            return np.pad(x, ((2, 2), (2, 2), (0, 0)), 'constant', constant_values=0)
+        W_adv = np.array([pad(i) for i in W_adv])
+        W_adv_sn = np.array([pad(i) for i in W_adv_sn])
+
+        # Undo whitening
+        X_adv = inv_per_image_whitening(W_adv, img_means, adj_stds)
+        X_adv_sn = inv_per_image_whitening(W_adv_sn, img_means, adj_stds)
+
+        # Redo cropping
+        X_adv = np.array([i[2:30, 2:30, :] for i in X_adv])
+        X_adv_sn = np.array([i[2:30, 2:30, :] for i in X_adv_sn])
+        
+    else:
+        X_adv = W_adv
+        X_adv_sn = W_adv_sn
+
+    print('Num test samples where sn with beta = %s does better: %s'\
+          %(beta, np.sum((Y_ != Y_adv) & (Y_ == Y_adv_sn))))
+    print('Num test samples where sn with beta = infinity does better: %s'\
+          %(np.sum((Y_ != Y_adv_sn) & (Y_ == Y_adv))))
+    
+    return X_adv, Y_adv, X_adv_sn, Y_adv_sn
+
+
+def show_perturbed_images(X_, X_adv, X_adv_sn, Y_, Y_adv, Y_adv_sn, cifar10_label_dict, eps, beta,
+                          n=10, seed=0, inds_of_interest=None, savename=None):
+    """Look at images where the beta approach does better"""
+    
+    if len(X_.shape) < 4 or X_.shape[-1] == 1:
+        graycmap = True
+    else: 
+        graycmap = False
+    
+    plt.figure(figsize=(5, n*2))
+
+    p_count = 0
+    np.random.seed(seed)
+
+    if inds_of_interest is None:
+        inds_of_interest = np.arange(len(Y_))
+
+    for i in np.random.choice(inds_of_interest, n, replace=False):
+        plt.subplot(n, 3, p_count+1)
+        if graycmap:
+            plt.imshow(X_[i], cmap='gray')
+        else:
+            plt.imshow(X_[i])
+        plt.axis('off')
+        plt.title('Original\n$y$ = %s'%(cifar10_label_dict[Y_[i]]))
+        plt.subplot(n, 3, p_count+2)
+        if graycmap:
+            plt.imshow(X_adv[i], cmap='gray')
+        else:
+            plt.imshow(X_[i])
+        plt.axis('off')
+        plt.title(u'WRM\n$\^y$ = %s' %(cifar10_label_dict[int(Y_adv[i])]))
+        plt.subplot(n, 3, p_count+3)
+        if graycmap:
+            plt.imshow(X_adv_sn[i], cmap='gray')
+        else:
+            plt.imshow(X_adv_sn[i])
+        plt.axis('off')
+        plt.title(u'SAR\n$\^y$ = %s'%(cifar10_label_dict[int(Y_adv_sn[i])]))
+        p_count += 3
+
+    plt.tight_layout()
+    if savename is not None:
+        plt.savefig(savename.split('.')[0]+'_true.pdf', format='pdf', dpi=500, bbox_inches='tight')
+    plt.show()
