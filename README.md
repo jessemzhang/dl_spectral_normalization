@@ -1,1 +1,3 @@
-# dl_spectral_adversarial_regularization
+# Spectral Adversarial Regularization
+
+The code in this repository accompanies the Spectral Adversarial Regularization paper.
