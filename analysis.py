@@ -886,7 +886,7 @@ def show_perturbed_images(X_, X_adv, X_adv_sn, Y_, Y_adv, Y_adv_sn, cifar10_labe
         if graycmap:
             plt.imshow(X_adv[i], cmap='gray')
         else:
-            plt.imshow(X_[i])
+            plt.imshow(X_adv[i])
         plt.axis('off')
         plt.title(u'WRM\n$\^y$ = %s' %(cifar10_label_dict[int(Y_adv[i])]))
         plt.subplot(n, 3, p_count+3)
