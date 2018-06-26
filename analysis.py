@@ -705,12 +705,12 @@ def get_perturbation_curves(Xtr, Xtt, arch_sn, arch, adv, eps_list, num_channels
                 _, adv_results['%s (test_refit)'%(key_base)] = \
                     get_adv_acc_curve(Xtt, Ytthat, save_dir, arch_, eps_list_, method=ad.pgm, **cargs)
 
-#    pickle.dump(adv_results, file(curves_file, 'wb'))
+    pickle.dump(adv_results, file(curves_file, 'wb'))
         
     return adv_results
 
 
-def plot_perturbation_curves(eps_list, adv_results, mode=1, betas_of_interest=None, title=None,
+def plot_perturbation_curves(eps_list, adv_results, mode=1, betas_of_interest=None, title=None, adv=None,
                              savename=None, ylim=None, logy=False, eps_list_rand=None, wdmode=False):
     """For plotting curves from perturbation experiment"""
     
@@ -725,29 +725,35 @@ def plot_perturbation_curves(eps_list, adv_results, mode=1, betas_of_interest=No
         if sum([1 for i in adv_results if labeltype in i]) == 0:
             continue
         
-        n = sum([1 for i in adv_results if param in i and labeltype in i])/2
+        if betas_of_interest is not None:
+            n = len(betas_of_interest)
+        else:
+            n = sum([1 for i in adv_results if param in i and labeltype in i])/2
         colors = cm.rainbow(np.linspace(0, 1, n)).tolist()
         plt.figure(figsize=(5, 4))
 
         for i, k in enumerate(sorted(adv_results)):
+            if adv is not None and adv.upper() not in k:
+                continue
+                
             if 'test' in k and labeltype in k:
                 if 'beta' not in k and 'lambda' not in k:
                     c = 'k'
                     beta = 0
                     label = u'$\\beta = \\infty$'
                 else:
-                    c = colors.pop(0)
-                    
                     if 'lambda' in k:
                         wd = float(k.split()[3])
                         label = u'$\\lambda/2 = %s$'%(wd)
                     else:
                         beta = float(k.split()[3])
                         label = u'$\\beta = %s$'%(beta)
-                    
-                if betas_of_interest is not None and beta not in betas_of_interest:
-                    continue 
-                    
+                        
+                        if betas_of_interest is not None and beta not in betas_of_interest:
+                            continue 
+                            
+                    c = colors.pop(0)
+
                 if 'Rand' in k and eps_list_rand is not None:
                     eps_list_ = eps_list_rand
                 else:
