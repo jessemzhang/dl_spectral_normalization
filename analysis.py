@@ -1,5 +1,6 @@
 import os
 import pickle
+import itertools
 import seaborn as sb
 import numpy as np
 import matplotlib.pyplot as plt
@@ -80,6 +81,8 @@ def plot_acc_curves(adv_results, x_vals, title='PGM attacks', sort_func=None, lo
         Plots all of these curves against one another.
     """
     
+    marker = itertools.cycle(('s', 'D', 'v', 'o', '+', '.', '^', '*')) 
+    
     n = len(adv_results)
     if sum([1 for i in adv_results if 'beta' not in i and 'wd' not in i]) > 0:
         n -= 1
@@ -129,13 +132,13 @@ def plot_acc_curves(adv_results, x_vals, title='PGM attacks', sort_func=None, lo
             if report_sn:
                 label += ', sn %.3e'%(adv_results[k][2])
                 
-            plt.plot(x_vals, 1.-adv_results[k][1], c=c, label=label)
+            plt.plot(x_vals, 1.-adv_results[k][1], c=c, label=label, marker = marker.next())
         else:
             if report_test:
                 label = '%s (test acc %.3f)'%(key, adv_results[k][0])
             else:
                 label = '%s'%(key)
-            plt.plot(x_vals, 1.-adv_results[k][1], c=c, label=label)
+            plt.plot(x_vals, 1.-adv_results[k][1], c=c, label=label, marker = marker.next())
             
     plt.xlabel(r'$\epsilon/C_2$')
     if xlim is not None:
@@ -532,6 +535,8 @@ def train_test_accs_to_pd_table(results):
 def plot_train_test_accs(results, savename=None, title=None, logx=True, logy=True, ylim=None, wdmode=False):
     """Plots train and test accs from train/test acc results dict"""
     
+    marker = itertools.cycle(('s', 'D', 'v', 'o', '+', '.', '^', '*')) 
+    
     plt.figure(figsize=(5, 4))
     
     if wdmode:
@@ -543,8 +548,8 @@ def plot_train_test_accs(results, savename=None, title=None, logx=True, logy=Tru
     
     train_accs = [results[i][0] for i in sorted(results) if param in i]
     test_accs = [results[i][1] for i in sorted(results) if param in i]
-    plt.plot(param_list, train_accs, 'b', label='Train')
-    plt.plot(param_list, test_accs, 'r', label='Test')
+    plt.plot(param_list, train_accs, 'b', label='Train', marker=marker.next())
+    plt.plot(param_list, test_accs, 'r', label='Test', marker=marker.next())
 
     if sum([1 for i in results if param in i]) > 0:
         nosn_tr_acc = [results[i][0] for i in results if param not in i][0]
@@ -558,9 +563,9 @@ def plot_train_test_accs(results, savename=None, title=None, logx=True, logy=Tru
             label_tt = u'Test ($\\beta = \\infty$)'
         
         plt.plot([np.min(param_list), np.max(param_list)],
-                 [nosn_tr_acc, nosn_tr_acc], 'b--', label=label_tr)
+                 [nosn_tr_acc, nosn_tr_acc], 'b--', label=label_tr, marker=marker.next())
         plt.plot([np.min(param_list), np.max(param_list)],
-                 [nosn_tt_acc, nosn_tt_acc], 'r--', label=label_tt)
+                 [nosn_tt_acc, nosn_tt_acc], 'r--', label=label_tt, marker=marker.next())
 
     if wdmode:
         plt.xlabel(u'$\\lambda$/2')
@@ -719,6 +724,7 @@ def plot_perturbation_curves(eps_list, adv_results, mode=1, betas_of_interest=No
     else:
         param = 'beta'
          
+    marker = itertools.cycle(('s', 'D', 'v', 'o', '+', '.', '^', '*'))
     
     for labeltype in ['Rand', 'True']:
         
@@ -733,9 +739,10 @@ def plot_perturbation_curves(eps_list, adv_results, mode=1, betas_of_interest=No
         plt.figure(figsize=(5, 4))
 
         for i, k in enumerate(sorted(adv_results)):
+            
             if adv is not None and adv.upper() not in k:
                 continue
-                
+            
             if 'test' in k and labeltype in k:
                 if 'beta' not in k and 'lambda' not in k:
                     c = 'k'
@@ -761,12 +768,12 @@ def plot_perturbation_curves(eps_list, adv_results, mode=1, betas_of_interest=No
                 
                 if mode == 1:
                     plt.plot(eps_list_, (1.-adv_results[k])-(1.-adv_results[k.replace('test', 'train')]),
-                             c=c, label=label)
+                             c=c, label=label, marker=marker.next())
                     
                 else:
-                    plt.plot(eps_list_, 1.-adv_results[k], '--', c=c, label=k)
+                    plt.plot(eps_list_, 1.-adv_results[k], '--', c=c, label=k, marker=marker.next())
                     plt.plot(eps_list_, 1.-adv_results[k.replace('test', 'train')], c=c,
-                             label=k.replace('test', 'train'))
+                             label=k.replace('test', 'train'), marker=marker.next())
 
         plt.xlabel(r'$\epsilon/C_2$')
         if ylim is not None:
