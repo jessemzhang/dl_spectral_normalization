@@ -10,7 +10,7 @@ import tflearn
   
 from tflearn.data_preprocessing import ImagePreprocessing
 from tflearn.data_augmentation import ImageAugmentation  
-  
+from scipy.io import loadmat
 
 def unpickle(file):
   import cPickle
@@ -82,6 +82,21 @@ class dataset():
                    np.array(dataset_tr['coarse_labels'])),
                   (np.transpose(dataset_tt['data'].reshape(-1,3,32,32).astype(float)/255,(0,2,3,1)),
                    np.array(dataset_tt['coarse_labels']))]
+    elif name == 'svhn':
+      if not os.path.isdir('./svhn'):
+        os.system('mkdir svhn')
+      if not os.path.isfile('./svhn/train_32x32.mat'):
+        print('Downloading SVHN train set..')
+        os.system('wget http://ufldl.stanford.edu/housenumbers/train_32x32.mat')
+      if not os.path.isfile('./svhn/test_32x32.mat'):
+        print('Downloading SVHN test set..')
+        os.system('wget http://ufldl.stanford.edu/housenumbers/test_32x32.mat')
+      dataset_tr = loadmat('./svhn/train_32x32.mat')
+      dataset_tt = loadmat('./svhn/test_32x32.mat')
+      datasets = [(np.transpose(dataset_tr['X'].astype(float)/255, axes=[3, 0, 1, 2]),
+                   dataset_tr['y'].reshape(-1).astype(int)),
+                  (np.transpose(dataset_tt['X'].astype(float)/255, axes=[3, 0, 1, 2]),
+                   dataset_tt['y'].reshape(-1).astype(int))]
     elif name == 'mnist':
       def rgb_and_pad_mnist(im):
         im_ = np.zeros((32,32))
@@ -176,6 +191,12 @@ class cifar100_parameters():
   n_classes = 100
   rand_seed = -1
 
+class svhn_parameters():
+  dataset = 'svhn'
+  per_image_whitening = True
+  n_classes = 10
+  rand_seed = -1
+
 class mnist_parameters():
   dataset = 'mnist'
   per_image_whitening = True
@@ -223,6 +244,19 @@ def get_cifar20_dataset(p_corrupt_label,n_samps=50000,rand_seed=None):
   class params(cifar20_parameters):
     def __init__(self,p,rand_seed,n_samp=50000):
       self.dataset = 'cifar20|SubS:tr:%s|RndL:trtt:%s'%(int(n_samp),int(p))
+      self.rand_seed = rand_seed
+
+  p = params(p_corrupt_label,rand_seed,n_samp=n_samps)
+  c = dataset(p)
+  datasets = c.prepare_inputs()
+
+  return datasets[0][0],datasets[0][1],datasets[1][0],datasets[1][1]
+
+
+def get_svhn_dataset(p_corrupt_label,n_samps=50000,rand_seed=None):
+  class params(svhn_parameters):
+    def __init__(self,p,rand_seed,n_samp=50000):
+      self.dataset = 'svhn|SubS:tr:%s|RndL:trtt:%s'%(int(n_samp),int(p))
       self.rand_seed = rand_seed
 
   p = params(p_corrupt_label,rand_seed,n_samp=n_samps)
