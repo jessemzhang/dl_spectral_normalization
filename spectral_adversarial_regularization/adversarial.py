@@ -128,7 +128,8 @@ def wrm(x, preds, y=None, eps=0.3, order=2, model=None, k=15,
     
     for t in xrange(k):
         loss_ = dl_utils.loss(model(x_adv, reuse=True, beta=graph_beta, 
-                                    update_collection=update_collection), y, mean=False)
+                                    update_collection=update_collection,
+                                    num_classes=num_classes), y, mean=False)
         grad, = tf.gradients(eps*loss_, x_adv)
         grad2, = tf.gradients(tf.nn.l2_loss(x_adv-x), x_adv)
         grad = grad - grad2
@@ -168,7 +169,8 @@ def pgm(x, preds, y=None, eps=0.3, order=2, model=None, a=None, k=15,
     
     for t in xrange(k):
         loss_ = dl_utils.loss(model(x_adv, reuse=reuse, beta=graph_beta,
-                                    update_collection=update_collection), y, mean=False)
+                                    update_collection=update_collection,
+                                    num_classes=num_classes), y, mean=False)
         grad, = tf.gradients(loss_, x_adv)
         
         if order == 1:
@@ -183,11 +185,11 @@ def pgm(x, preds, y=None, eps=0.3, order=2, model=None, a=None, k=15,
     return x_adv
     
     
-def gen_adv_examples_in_sess(X, graph, sess, batch_size=100, method=fgm, **kwargs):
+def gen_adv_examples_in_sess(X, graph, sess, batch_size=100, method=fgm, num_classes=10, **kwargs):
     """Use trained model to generate adversarial examples from X within a session"""
 
-    adv_tensor = method(graph['input_data'], graph['fc_out'], **kwargs)
-    
+    adv_tensor = method(graph['input_data'], graph['fc_out'], num_classes=num_classes, **kwargs)
+
     adv_x = np.zeros(np.shape(X))
     for i in range(0, len(X), batch_size):
         adv_x[i:i+batch_size] = sess.run(adv_tensor, feed_dict={graph['input_data']: X[i:i+batch_size]})
@@ -200,7 +202,7 @@ def build_graph_and_gen_adv_examples(X, arch, load_dir, num_classes=10, beta=1, 
     """Build a tensorflow graph and generate adversarial examples"""
     
     if load_epoch is None:
-        load_epoch = latest_epoch(load_dir)
+        load_epoch = dl_utils.latest_epoch(load_dir)
     else:
         load_epoch = np.min((dl_utils.latest_epoch(load_dir), load_epoch))
         
@@ -212,7 +214,8 @@ def build_graph_and_gen_adv_examples(X, arch, load_dir, num_classes=10, beta=1, 
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
                                               gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
             graph['saver'].restore(sess, os.path.join(load_dir, 'checkpoints', 'epoch%s'%(load_epoch)))
-            return gen_adv_examples_in_sess(X, graph, sess, method=method, model=arch, graph_beta=beta, **kwargs)
+            return gen_adv_examples_in_sess(X, graph, sess, method=method, model=arch, graph_beta=beta, 
+                                            num_classes=num_classes, **kwargs)
             
 
 def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_channels=3,
@@ -232,7 +235,7 @@ def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_cha
                                               gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
             if d is None:
                 if load_epoch is None:
-                    load_epoch = latest_epoch(load_dir)
+                    load_epoch = dl_utils.latest_epoch(load_dir)
                 else:
                     load_epoch = np.min((dl_utils.latest_epoch(load_dir), load_epoch))
                     
@@ -243,7 +246,8 @@ def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_cha
                     sess.run(v.assign(d[v.name]))
             
             # Generate adversarial samples and predict
-            X_adv = gen_adv_examples_in_sess(X, graph, sess, method=method, model=arch, graph_beta=beta, **kwargs)
+            X_adv = gen_adv_examples_in_sess(X, graph, sess, method=method, model=arch, graph_beta=beta, 
+                                             num_classes=num_classes, **kwargs)
             
             # Gradients for some examples will sometimes be zero.. ignore this
             if fix_adv:

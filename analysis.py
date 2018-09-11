@@ -57,19 +57,21 @@ def perturb_images(X, eps, arch, adv, method=ad.wrm, n=None,
 
 
 def get_adv_acc_curve(X, Y, save_dir, arch, eps_list, order=2, method=ad.pgm, beta=1.,
-                      load_epoch=25, num_channels=1, gpu_prop=0.2):
+                      load_epoch=25, num_channels=1, gpu_prop=0.2, num_classes=10):
     """Sweeps through a list of eps for attacking a network, generating an adv performance curve"""
 
     load_epoch = np.min((dl_utils.latest_epoch(save_dir), load_epoch))
     
     adv_accs = np.zeros(len(eps_list))
     acc = dl_utils.build_graph_and_predict(X, save_dir, arch, Y=Y, beta=beta, gpu_prop=gpu_prop,
-                                           num_channels=num_channels, load_epoch=load_epoch)
+                                           num_channels=num_channels, load_epoch=load_epoch,
+                                           num_classes=num_classes)
     print('Acc on examples: %.4f'%(acc))
     for i, eps in enumerate(eps_list):
         adv_accs[i] = ad.test_net_against_adv_examples(X, Y, save_dir, arch, beta=beta, gpu_prop=gpu_prop,
                                                        num_channels=num_channels, method=method,
-                                                       order=order, eps=eps, load_epoch=load_epoch)
+                                                       order=order, eps=eps, load_epoch=load_epoch,
+                                                       num_classes=num_classes)
     return acc, adv_accs
 
 
@@ -646,7 +648,8 @@ def get_train_v_test_adv_acc_curves(Xtr, Ytr, Xtt, Ytt, arch_sn, arch, adv, eps_
 def get_perturbation_curves(Xtr, Xtt, arch_sn, arch, adv, eps_list, num_channels=1,
                             load_epoch=25, curves_file=None, betas_of_interest=None, 
                             maindir='save_weights/mnist/', gpu_prop=0.1, verbose=True,
-                            skiprand=False, skiptrue=False, eps_list_rand=None, wdmode=False):
+                            skiprand=False, skiptrue=False, eps_list_rand=None, wdmode=False,
+                            num_classes=10):
     """Scans through the trained networks in a directory and for each value of beta,
        recovers a perturbation curve, or the proportion of labels that change after
        adv attacks of various magnitudes.
@@ -697,7 +700,7 @@ def get_perturbation_curves(Xtr, Xtt, arch_sn, arch, adv, eps_list, num_channels
                 eps_list_ = eps_list
                 key_base += ' True'
 
-            cargs = {'beta':beta, 'load_epoch':load_epoch, 'num_channels':num_channels, 'gpu_prop':gpu_prop}
+            cargs = {'beta':beta, 'load_epoch':load_epoch, 'num_channels':num_channels, 'gpu_prop':gpu_prop, 'num_classes':num_classes}
 
             if verbose: print(f, beta, load_epoch, num_channels, gpu_prop, arch_, np.sum(np.abs(Xtr)))
                 

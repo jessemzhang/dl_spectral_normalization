@@ -40,7 +40,8 @@ def graph_builder_wrapper(arch,
                           beta=1.,
                           save_histograms=False,
                           num_channels=3,
-                          max_save=200):
+                          max_save=200,
+                          loss=loss):
     """Wrapper for building graph and accessing all relevant ops/placeholders"""
 
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, num_channels], name='in_data')
@@ -117,7 +118,6 @@ def graph_builder_wrapper(arch,
 
 def train(Xtr, Ytr, graph, save_dir,
           val_set=None,
-          Ip=15,
           lr_initial=0.01,
           seed=0,
           num_epochs=100,

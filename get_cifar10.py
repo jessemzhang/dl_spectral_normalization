@@ -93,10 +93,12 @@ class dataset():
         os.system('wget http://ufldl.stanford.edu/housenumbers/test_32x32.mat')
       dataset_tr = loadmat('./svhn/train_32x32.mat')
       dataset_tt = loadmat('./svhn/test_32x32.mat')
-      datasets = [(np.transpose(dataset_tr['X'].astype(float)/255, axes=[3, 0, 1, 2]),
-                   dataset_tr['y'].reshape(-1).astype(int)),
-                  (np.transpose(dataset_tt['X'].astype(float)/255, axes=[3, 0, 1, 2]),
-                   dataset_tt['y'].reshape(-1).astype(int))]
+      y_tr = dataset_tr['y'].reshape(-1).astype(int)
+      y_tr[y_tr == 10] = 0
+      y_tt = dataset_tt['y'].reshape(-1).astype(int)
+      y_tt[y_tt == 10] = 0
+      datasets = [(np.transpose(dataset_tr['X'].astype(float)/255, axes=[3, 0, 1, 2]), y_tr),
+                  (np.transpose(dataset_tt['X'].astype(float)/255, axes=[3, 0, 1, 2]), y_tt)]
     elif name == 'mnist':
       def rgb_and_pad_mnist(im):
         im_ = np.zeros((32,32))
@@ -253,9 +255,9 @@ def get_cifar20_dataset(p_corrupt_label,n_samps=50000,rand_seed=None):
   return datasets[0][0],datasets[0][1],datasets[1][0],datasets[1][1]
 
 
-def get_svhn_dataset(p_corrupt_label,n_samps=50000,rand_seed=None):
+def get_svhn_dataset(p_corrupt_label,n_samps=73257,rand_seed=None):
   class params(svhn_parameters):
-    def __init__(self,p,rand_seed,n_samp=50000):
+    def __init__(self,p,rand_seed,n_samp=73257):
       self.dataset = 'svhn|SubS:tr:%s|RndL:trtt:%s'%(int(n_samp),int(p))
       self.rand_seed = rand_seed
 
