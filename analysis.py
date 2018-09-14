@@ -57,21 +57,25 @@ def perturb_images(X, eps, arch, adv, method=ad.wrm, n=None,
 
 
 def get_adv_acc_curve(X, Y, save_dir, arch, eps_list, order=2, method=ad.pgm, beta=1.,
-                      load_epoch=25, num_channels=1, gpu_prop=0.2, num_classes=10):
+                      load_epoch=25, num_channels=1, gpu_prop=0.2, num_classes=10, skip_zero_eps=False):
     """Sweeps through a list of eps for attacking a network, generating an adv performance curve"""
 
     load_epoch = np.min((dl_utils.latest_epoch(save_dir), load_epoch))
     
     adv_accs = np.zeros(len(eps_list))
-    acc = dl_utils.build_graph_and_predict(X, save_dir, arch, Y=Y, beta=beta, gpu_prop=gpu_prop,
-                                           num_channels=num_channels, load_epoch=load_epoch,
-                                           num_classes=num_classes)
-    print('Acc on examples: %.4f'%(acc))
+    if not skip_zero_eps:
+        acc = dl_utils.build_graph_and_predict(X, save_dir, arch, Y=Y, beta=beta, gpu_prop=gpu_prop,
+                                               num_channels=num_channels, load_epoch=load_epoch,
+                                               num_classes=num_classes)
+        print('Acc on examples: %.4f'%(acc))
     for i, eps in enumerate(eps_list):
         adv_accs[i] = ad.test_net_against_adv_examples(X, Y, save_dir, arch, beta=beta, gpu_prop=gpu_prop,
                                                        num_channels=num_channels, method=method,
                                                        order=order, eps=eps, load_epoch=load_epoch,
                                                        num_classes=num_classes)
+        
+    if skip_zero_eps:
+        return adv_accs
     return acc, adv_accs
 
 

@@ -87,10 +87,10 @@ class dataset():
         os.system('mkdir svhn')
       if not os.path.isfile('./svhn/train_32x32.mat'):
         print('Downloading SVHN train set..')
-        os.system('wget http://ufldl.stanford.edu/housenumbers/train_32x32.mat')
+        os.system('wget -O ./svhn/train_32x32.mat http://ufldl.stanford.edu/housenumbers/train_32x32.mat')
       if not os.path.isfile('./svhn/test_32x32.mat'):
         print('Downloading SVHN test set..')
-        os.system('wget http://ufldl.stanford.edu/housenumbers/test_32x32.mat')
+        os.system('wget -O ./svhn/test_32x32.mat http://ufldl.stanford.edu/housenumbers/test_32x32.mat')
       dataset_tr = loadmat('./svhn/train_32x32.mat')
       dataset_tt = loadmat('./svhn/test_32x32.mat')
       y_tr = dataset_tr['y'].reshape(-1).astype(int)

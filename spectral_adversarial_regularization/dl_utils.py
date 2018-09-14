@@ -66,12 +66,13 @@ def graph_builder_wrapper(arch,
             
         fc_out_adv = arch(adv_x, num_classes=num_classes, wd=wd,
                           beta=beta, update_collection=update_collection, reuse=True)
-        total_loss = loss(fc_out_adv, input_labels)
-        total_acc = acc(fc_out_adv, input_labels)
+        
         
     else:
-        total_loss = loss(fc_out, input_labels)
-        total_acc = acc(fc_out, input_labels)
+        fc_out_adv = fc_out
+        
+    total_loss = loss(fc_out_adv, input_labels)
+    total_acc = acc(fc_out_adv, input_labels)
 
     if num_channels == 1: # For MNIST dataset
         opt_step = tf.train.AdamOptimizer(0.001).minimize(total_loss)
@@ -85,6 +86,7 @@ def graph_builder_wrapper(arch,
         total_loss = total_loss,
         total_acc = total_acc,
         fc_out = fc_out,
+        fc_out_adv = fc_out_adv,
         opt_step = opt_step,
         learning_rate = learning_rate
     )
@@ -311,6 +313,32 @@ def build_graph_and_predict(X, load_dir, arch,
         return Yhat
     return np.sum(Yhat == Y)/float(len(Y))
         
+
+def build_graph_and_get_acc(X, Y, arch, adv='erm', eps=0.3, save_dir=None, beta=1.,
+                            batch_size=100, gpu_prop=0.2, load_epoch=None, num_channels=3):
+    """Build a tensorflow graph and gets accuracy"""
+
+    tf.reset_default_graph()
+    graph = graph_builder_wrapper(arch, adv=adv, eps=eps, save_dir=save_dir,
+                                  update_collection='_', beta=beta, num_channels=num_channels)
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
+                    gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
+        load_file = tf.train.latest_checkpoint(os.path.join(save_dir, 'checkpoints'))
+        if load_file is not None:
+            load_file.replace(load_file.split('epoch')[1], str(load_epoch))
+        graph['saver'].restore(sess, load_file)
+        
+        num_correct = 0
+        num_total_samples = 0
+        for i in range(0, len(X), batch_size):
+            x, y = X[i:i+batch_size], Y[i:i+batch_size]
+            num_batch_samples = len(x)
+            feed_dict = {graph['input_data']: x, graph['input_labels']: y}
+            num_correct += sess.run(graph['total_acc'], feed_dict=feed_dict)*num_batch_samples
+            num_total_samples += num_batch_samples
+        
+        return num_correct/num_total_samples
+
 
 def recover_curve(X, Y, load_dir,
                   num_classes=10,
