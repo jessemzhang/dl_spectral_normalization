@@ -8,10 +8,10 @@ import tensorflow as tf
 import numpy as np
 from .. import sn
 
-def vgg(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None):
+def vgg(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None, training=False):
     """VGG architecture"""
     
-    snconv_kwargs = {'bn':True, 'xavier':True, 'spectral_norm':False, 'reuse':reuse}
+    snconv_kwargs = {'bn':True, 'xavier':True, 'spectral_norm':False, 'reuse':reuse, 'training':training}
 
     layer1 = tf.nn.relu(sn.conv2d(input_data, [3, 3, 3, 64], scope_name='conv1', **snconv_kwargs))
     layer2 = tf.nn.relu(sn.conv2d(layer1, [3, 3, 64, 64], scope_name='conv2', **snconv_kwargs))
@@ -42,11 +42,11 @@ def vgg(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse
     return fc
 
 
-def vgg_sn(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None):
+def vgg_sn(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None, training=False):
     """VGG architecture with spectral normalization on all layers"""
     
     snconv_kwargs = {'bn':True, 'xavier':True, 'spectral_norm':True, 'reuse': reuse,
-                     'beta':beta, 'update_collection':update_collection}
+                     'beta':beta, 'update_collection':update_collection, 'training':training}
     
     layer1 = tf.nn.relu(sn.conv2d(input_data, [3, 3, 3, 64], scope_name='conv1', **snconv_kwargs))
     layer2 = tf.nn.relu(sn.conv2d(layer1, [3, 3, 64, 64], scope_name='conv2', **snconv_kwargs))
@@ -79,7 +79,7 @@ def vgg_sn(input_data, num_classes=10, wd=0, update_collection=None, beta=1., re
     return fc
 
 
-def vgg_snl2(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None):
+def vgg_snl2(input_data, num_classes=10, wd=0, update_collection=None, beta=1., reuse=None, training=False):
     """VGG architecture with spectral normalization on all layers except last one, which
        can be L2 regularized
     """

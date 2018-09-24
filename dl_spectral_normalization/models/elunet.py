@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 from .. import sn
 
-def elunet(input_data, num_classes=10, nb_filters=64, wd=0, beta=1, update_collection=None, reuse=None):
+def elunet(input_data, num_classes=10, nb_filters=64, wd=0, beta=1, update_collection=None, reuse=None, training=False):
     """Simple network for MNIST dataset 
         (as described in https://arxiv.org/pdf/1710.10571.pdf)
     """
@@ -27,7 +27,7 @@ def elunet(input_data, num_classes=10, nb_filters=64, wd=0, beta=1, update_colle
     return fc
 
 
-def elunet_sn(input_data, num_classes=10, nb_filters=64, wd=0, beta=1, update_collection=None, reuse=None):
+def elunet_sn(input_data, num_classes=10, nb_filters=64, wd=0, beta=1, update_collection=None, reuse=None, training=False):
     """Simple network for MNIST dataset with spectral normalization on all layers
         (as described in https://arxiv.org/pdf/1710.10571.pdf)
     """

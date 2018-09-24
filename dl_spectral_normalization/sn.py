@@ -18,9 +18,12 @@ def l2_norm(input_x, epsilon=1e-12):
     return input_x_norm
 
 
-def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=True, beta=1.,
-           padding='SAME', spectral_norm=True, update_collection=None, xavier=True, bn=False,
-           l2_norm=False, wd=0, reuse=None):
+def conv2d(input_x, kernel_size, scope_name='conv2d',
+           xavier=True, variance_scaling=False, stride=1, padding='SAME', use_bias=True,
+           beta=1., spectral_norm=True, tighter_sn=True,
+           update_collection=None, reuse=None,
+           l2_norm=False, wd=0, 
+           bn=False, training=False):
     """2D convolution layer with spectral normalization option"""
     
     shape = input_x.get_shape().as_list()
@@ -32,10 +35,12 @@ def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=True,
         if xavier:
             weights = tf.get_variable('weights', kernel_size, tf.float32, 
                                       initializer=tf.contrib.layers.xavier_initializer())
+        elif variance_scaling:
+            weights = tf.get_variable('weights', kernel_size, tf.float32, 
+                                      initializer=tf.variance_scaling_initializer())
         else:
             weights = tf.get_variable('weights', kernel_size, tf.float32, 
                                       initializer=tf.random_normal_initializer(stddev=0.02))
-        bias = tf.get_variable('bias', output_len, tf.float32, initializer=tf.constant_initializer(0))
         if spectral_norm:
             weights = weights_spectral_norm(weights, update_collection=update_collection,
                                             tighter_sn=tighter_sn, u_width=u_width, beta=beta,
@@ -44,9 +49,11 @@ def conv2d(input_x, kernel_size, scope_name='conv2d', stride=1, tighter_sn=True,
             weight_decay = tf.multiply(tf.nn.l2_loss(weights), wd, name='weight_loss')
             tf.add_to_collection('losses', weight_decay)
         conv = tf.nn.conv2d(input_x, weights, strides=[1, stride, stride, 1], padding=padding)
-        conv = tf.nn.bias_add(conv, bias)
+        if use_bias:
+            bias = tf.get_variable('bias', output_len, tf.float32, initializer=tf.constant_initializer(0))
+            conv = tf.nn.bias_add(conv, bias)
         if bn:
-            conv = tf.layers.batch_normalization(conv)
+            conv = tf.layers.batch_normalization(conv, training=training)
         return conv
 
 

@@ -32,7 +32,7 @@ def acc(g, Y):
 
 def graph_builder_wrapper(arch,
                           num_classes=10,
-                          adv=None,
+                          adv='erm',
                           eps=0.3,
                           save_dir=None,
                           wd=0,
@@ -41,13 +41,18 @@ def graph_builder_wrapper(arch,
                           save_histograms=False,
                           num_channels=3,
                           max_save=200,
-                          loss=loss):
+                          training=False,
+                          loss=loss,
+                          order=2,
+                          opt='momentum'):
     """Wrapper for building graph and accessing all relevant ops/placeholders"""
+    
+    assert isinstance(adv, str)
 
     input_data = tf.placeholder(tf.float32, shape=[None, 28, 28, num_channels], name='in_data')
     input_labels = tf.placeholder(tf.int64, shape=[None], name='in_labels')
 
-    fc_out = arch(input_data, num_classes=num_classes, wd=wd,
+    fc_out = arch(input_data, num_classes=num_classes, wd=wd, training=training,
                   beta=beta, update_collection=update_collection)
 
     # Loss and optimizer (with adversarial training options)
@@ -55,18 +60,17 @@ def graph_builder_wrapper(arch,
 
     if adv in ['wrm', 'fgm', 'pgm']:
         if adv == 'wrm':
-            adv_x = ad.wrm(input_data, fc_out, eps=eps, order=2, model=arch, k=15,
-                           num_classes=num_classes, graph_beta=beta)
+            adv_x = ad.wrm(input_data, fc_out, eps=eps, order=order, model=arch, k=15,
+                           num_classes=num_classes, graph_beta=beta, training=training)
         elif adv == 'fgm':
-            adv_x = ad.fgm(input_data, fc_out, eps=eps, order=2)
+            adv_x = ad.fgm(input_data, fc_out, eps=eps, order=order, training=training)
             
         elif adv == 'pgm':
-            adv_x = ad.pgm(input_data, fc_out, eps=eps, order=2, model=arch, k=15,
-                           num_classes=num_classes, graph_beta=beta)
+            adv_x = ad.pgm(input_data, fc_out, eps=eps, order=order, model=arch, k=15,
+                           num_classes=num_classes, graph_beta=beta, training=training)
             
         fc_out_adv = arch(adv_x, num_classes=num_classes, wd=wd,
-                          beta=beta, update_collection=update_collection, reuse=True)
-        
+                          beta=beta, update_collection=update_collection, reuse=True, training=training)
         
     else:
         fc_out_adv = fc_out
@@ -74,10 +78,11 @@ def graph_builder_wrapper(arch,
     total_loss = loss(fc_out_adv, input_labels)
     total_acc = acc(fc_out_adv, input_labels)
 
-    if num_channels == 1: # For MNIST dataset
-        opt_step = tf.train.AdamOptimizer(0.001).minimize(total_loss)
-    else:
-        opt_step = tf.train.MomentumOptimizer(learning_rate, 0.9).minimize(total_loss)
+    with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+        if num_channels == 1 or opt == 'adam': # For MNIST dataset
+            opt_step = tf.train.AdamOptimizer(0.001).minimize(total_loss)
+        else:
+            opt_step = tf.train.MomentumOptimizer(learning_rate, 0.9).minimize(total_loss)
     
     # Output dictionary to useful tf ops in the graph
     graph = dict(
@@ -94,25 +99,27 @@ def graph_builder_wrapper(arch,
     # Saving weights and useful information to tensorboard
     if save_dir is not None:
         saver = tf.train.Saver(max_to_keep=max_save)
-        tf.summary.scalar('loss', total_loss)
-        tf.summary.scalar('accuracy', total_acc)
-        
-        # Add histograms for trainable variables (really slows down training though)
-        if save_histograms:
-            for var in tf.trainable_variables():
-                tf.summary.histogram(var.op.name, var)
-
-        # Merge all the summaries and write them out to save_dir
-        merged = tf.summary.merge_all()
-        train_writer = tf.summary.FileWriter(os.path.join(save_dir, 'train'))
-        graph_writer = tf.summary.FileWriter(os.path.join(save_dir, 'graph'), graph=tf.get_default_graph())
-        valid_writer = tf.summary.FileWriter(os.path.join(save_dir, 'validation'))
-        
-        graph['merged'] = merged
-        graph['train_writer'] = train_writer
-        graph['graph_writer'] = graph_writer
-        graph['valid_writer'] = valid_writer
         graph['saver'] = saver
+        
+        if not os.path.isdir(save_dir):
+            tf.summary.scalar('loss', total_loss)
+            tf.summary.scalar('accuracy', total_acc)
+
+            # Add histograms for trainable variables (really slows down training though)
+            if save_histograms:
+                for var in tf.trainable_variables():
+                    tf.summary.histogram(var.op.name, var)
+
+            # Merge all the summaries and write them out to save_dir
+            merged = tf.summary.merge_all()
+            train_writer = tf.summary.FileWriter(os.path.join(save_dir, 'train'))
+            graph_writer = tf.summary.FileWriter(os.path.join(save_dir, 'graph'), graph=tf.get_default_graph())
+            valid_writer = tf.summary.FileWriter(os.path.join(save_dir, 'validation'))
+
+            graph['merged'] = merged
+            graph['train_writer'] = train_writer
+            graph['graph_writer'] = graph_writer
+            graph['valid_writer'] = valid_writer
     
     return graph
 
@@ -230,6 +237,8 @@ def build_graph_and_train(Xtr, Ytr, save_dir, arch,
                           gpu_id=0,
                           verbose=True,
                           beta=1.,
+                          order=2,
+                          opt='momentum',
                           **kwargs):
     """Build tensorflow graph and train"""
     
@@ -238,13 +247,16 @@ def build_graph_and_train(Xtr, Ytr, save_dir, arch,
     if verbose: start = time.time()
     with tf.device("/gpu:%s"%(gpu_id)):
         if not os.path.exists(save_dir) or 'checkpoints' not in os.listdir(save_dir):
-            graph = graph_builder_wrapper(arch, adv=adv, eps=eps, num_classes=num_classes, save_dir=save_dir,
-                                          wd=wd, beta=beta, num_channels=num_channels)
+            graph = graph_builder_wrapper(arch, adv=adv, eps=eps, 
+                                          num_classes=num_classes, save_dir=save_dir,
+                                          wd=wd, beta=beta, num_channels=num_channels, 
+                                          order=order, training=True, opt=opt)
             tr_losses, tr_accs = train(Xtr, Ytr, graph, save_dir, **kwargs)
         else:
             
             graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir,
-                                          wd=wd, beta=beta, num_channels=num_channels, update_collection='_')
+                                          wd=wd, beta=beta, num_channels=num_channels,
+                                          order=order, update_collection='_', opt=opt)
             if verbose:
                 print('Model already exists.. loading trained model..')
                 
@@ -301,12 +313,15 @@ def build_graph_and_predict(X, load_dir, arch,
                             beta=1.,
                             num_channels=3,
                             load_epoch=None,
-                            gpu_prop=0.2):
+                            gpu_prop=0.2,
+                            order=2,
+                            opt='momentum'):
     """Build a tensorflow graph and predict labels"""
     
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
-        graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=load_dir, beta=beta,
+        graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=load_dir, 
+                                      order=order, beta=beta, opt=opt,
                                       update_collection='_', num_channels=num_channels)
         Yhat = predict_labels(X, graph, load_dir, load_epoch=load_epoch, gpu_prop=gpu_prop)
     if Y is None: 
@@ -314,18 +329,19 @@ def build_graph_and_predict(X, load_dir, arch,
     return np.sum(Yhat == Y)/float(len(Y))
         
 
-def build_graph_and_get_acc(X, Y, arch, adv='erm', eps=0.3, save_dir=None, beta=1.,
-                            batch_size=100, gpu_prop=0.2, load_epoch=None, num_channels=3):
+def build_graph_and_get_acc(X, Y, arch, adv='erm', eps=0.3, save_dir=None, beta=1., order=2,
+                            batch_size=100, gpu_prop=0.2, load_epoch=None, num_channels=3, opt='momentum'):
     """Build a tensorflow graph and gets accuracy"""
 
     tf.reset_default_graph()
     graph = graph_builder_wrapper(arch, adv=adv, eps=eps, save_dir=save_dir,
-                                  update_collection='_', beta=beta, num_channels=num_channels)
+                                  update_collection='_', beta=beta, opt=opt,
+                                  order=order, num_channels=num_channels)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
                     gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
         load_file = tf.train.latest_checkpoint(os.path.join(save_dir, 'checkpoints'))
-        if load_file is not None:
-            load_file.replace(load_file.split('epoch')[1], str(load_epoch))
+        if load_epoch is not None:
+            load_file = load_file.replace(load_file.split('epoch')[1], str(load_epoch))
         graph['saver'].restore(sess, load_file)
         
         num_correct = 0
@@ -386,15 +402,16 @@ def recover_train_and_test_curves(Xtr, Ytr, Xtt, Ytt, load_dir,
 def get_embedding_in_sess(X, graph, sess, batch_size=100):
     """Gets embedding (last layer output) within a session"""
     
-    num_classes = graph['fc_out'].shape.as_list()[1]
+    num_classes = graph['fc_out_adv'].shape.as_list()[1]
     embedding = np.zeros((len(X), num_classes))
     for i in range(0, len(X), batch_size):
-        embedding_ = sess.run(graph['fc_out'], feed_dict = {graph['input_data']:X[i:i+batch_size]})
+        embedding_ = sess.run(graph['fc_out_adv'], feed_dict = {graph['input_data']:X[i:i+batch_size]})
         embedding[i:i+batch_size] = embedding_
     return embedding
 
 
 def get_embedding(X, load_dir, arch, num_classes=10, num_channels=3, beta=1., 
+                  adv='erm', eps=0.3, order=2,
                   batch_size=100, sn_fc=False, load_epoch=None, gpu_prop=0.2):
     """recovers the representation of the data at the layer before the softmax layer
        Use sn_fc to indicate that last layer (should be named 'fc/weights:0') needs to be
@@ -403,7 +420,8 @@ def get_embedding(X, load_dir, arch, num_classes=10, num_channels=3, beta=1.,
     
     tf.reset_default_graph()
     graph = graph_builder_wrapper(arch, num_classes=num_classes, num_channels=num_channels,
-                                  save_dir=load_dir, beta=beta, update_collection='_')
+                                  save_dir=load_dir, beta=beta, update_collection='_',
+                                  order=order, adv=adv, eps=eps)
     
     if load_epoch is None:
         load_epoch = latest_epoch(load_dir)
@@ -536,11 +554,11 @@ def extract_train_valid_tensorboard(load_dir, curve='accuracy', show_plot=False,
     return train_values, valid_values
 
 
-def plot_stacked_hist(v0, v1, labels=None):
+def plot_stacked_hist(v0, v1, labels=None, bins=20):
     """Plots two histograms on top of one another"""
     if labels is None:
         labels = ['0', '1']
-    bins = np.histogram(np.hstack((v0, v1)), bins=20)[1]
+    bins = np.histogram(np.hstack((v0, v1)), bins=bins)[1]
     data = [v0, v1]
     plt.hist(data, bins, label=labels, alpha=0.8, color=['r','g'],
              normed=True, edgecolor='none')

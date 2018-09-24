@@ -34,8 +34,8 @@ def project_back_onto_unit_ball(x_adv, x, eps=0.3, order=2):
     return x+delta/adj_norms
 
 
-def fgm(x, preds, y=None, eps=0.3, order=2, model=None, clip_min=None, clip_max=None,
-        reuse=True, update_collection='_', graph_beta=1.0, num_classes=10):
+def fgm(x, preds, y=None, eps=0.3, order=2, clip_min=None, clip_max=None,
+        **kwargs):
     """
     TensorFlow implementation of the Fast Gradient Method. Code adapted from
     https://github.com/tensorflow/cleverhans/blob/master/cleverhans/attacks_tf.py
@@ -93,7 +93,7 @@ def fgm(x, preds, y=None, eps=0.3, order=2, model=None, clip_min=None, clip_max=
 
     
 def wrm(x, preds, y=None, eps=0.3, order=2, model=None, k=15,
-        reuse=True, update_collection='_', graph_beta=1.0, num_classes=10):
+        reuse=True, update_collection='_', graph_beta=1.0, num_classes=10, training=False):
   
     """
     TensorFlow implementation of the Wasserstein distributionally
@@ -139,7 +139,7 @@ def wrm(x, preds, y=None, eps=0.3, order=2, model=None, k=15,
 
 
 def pgm(x, preds, y=None, eps=0.3, order=2, model=None, a=None, k=15,
-        reuse=True, update_collection='_', graph_beta=1., num_classes=10):
+        reuse=True, update_collection='_', graph_beta=1., num_classes=10, training=False):
     """
     TensorFlow implementation of the Projected Gradient Method.
     :param x: the input placeholder
@@ -158,7 +158,7 @@ def pgm(x, preds, y=None, eps=0.3, order=2, model=None, a=None, k=15,
                 Possible values: 1 or 2.
     :return: a tensor for the adversarial example
     """
-    
+
     if a is None:
         a = 2.*eps/k
 
@@ -178,9 +178,17 @@ def pgm(x, preds, y=None, eps=0.3, order=2, model=None, a=None, k=15,
             
         elif order == 2:
             scaled_grad = grad / l2_norm_tf(grad)
+            
+        elif order == np.inf:
+            scaled_grad = tf.sign(grad)
         
         x_adv = tf.stop_gradient(x_adv + a*scaled_grad)
-        x_adv = project_back_onto_unit_ball(x_adv, x, eps=eps, order=order)
+        
+        if order in [1, 2]:
+            x_adv = project_back_onto_unit_ball(x_adv, x, eps=eps, order=order)
+            
+        elif order == np.inf:
+            x_adv = tf.clip_by_value(x_adv, x-eps, x+eps)
         
     return x_adv
     
@@ -220,7 +228,7 @@ def build_graph_and_gen_adv_examples(X, arch, load_dir, num_classes=10, beta=1, 
 
 def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_channels=3,
                                   verbose=True, gpu_id=0, gpu_prop=0.2, load_epoch=None,
-                                  fix_adv=False, num_classes=10, method=fgm, **kwargs):
+                                  fix_adv=False, num_classes=10, method=fgm, opt='momentum', **kwargs):
     """For a trained network, generate and get accuracy for adversarially-perturbed samples"""
     
     start = time.time()
@@ -229,7 +237,7 @@ def test_net_against_adv_examples(X, Y, load_dir, arch, d=None, beta=1., num_cha
     tf.reset_default_graph()
     with tf.device("/gpu:%s"%(gpu_id)):
         graph = dl_utils.graph_builder_wrapper(arch, num_classes=num_classes, save_dir=load_dir, beta=beta,
-                                               num_channels=num_channels, update_collection='_')
+                                               num_channels=num_channels, update_collection='_', opt=opt)
 
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
                                               gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=gpu_prop))) as sess:
