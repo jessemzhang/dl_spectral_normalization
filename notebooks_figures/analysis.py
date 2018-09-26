@@ -84,13 +84,20 @@ def make_kappa_plots(X, Y, beta_list, dirname, defense, resultsfile, arch, plot_
     return results
 
 
-def plot_hists(ratios, title=None, value_name=None, legend=True):
+def plot_hists(ratios, title=None, value_name=None, legend=True, add_markers=False):
     """Plots multiple histograms, one for each key: value pair in ratios 
        (key = legend label, value = array of values to make hist of)
     """
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    markers = ['s', 'D', 'v', 'o', '*', '^', '+', '.']
     df = pd.DataFrame.from_dict(ratios)
-    for beta in df.columns:
-        sns.distplot(df[beta], rug=False, label=r'$\beta$=%s'%(beta))
+    for i, beta in enumerate(df.columns):
+        ax = sns.distplot(df[beta], rug=False)
+        if add_markers:
+            x = ax.lines[2*i].get_xdata()
+            y = ax.lines[2*i].get_ydata()
+            plt.plot(x[np.argmax(y)], np.max(y), marker=markers[i], markeredgecolor='k', 
+                     color=colors[i], label=r'$\beta$=%s'%(beta))
     plt.xlabel('data' if value_name is None else value_name)
     if title is not None:
         plt.title(title)
