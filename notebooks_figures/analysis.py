@@ -14,12 +14,15 @@ sys.path.insert(0, '../')
 from dl_spectral_normalization import dl_utils
 
 
-def plot_adv_attack_curves(data, eps_list, eps_train=None, lw=3,
+def plot_adv_attack_curves(data, eps_list, eps_train=None, lw=3, marker=True,
                            xlim=None, ylim=None, title=None, legend=True):
     """Generate plot of error after sweeping through various magnitude attacks"""
     markers = ['s', 'o', 'v', 'D', '+', '.', '^', '*']
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
     for i, k in enumerate(data):
-        plt.plot(eps_list, 1-data[k], label=k, lw=lw, marker=markers[i], markeredgecolor='k', ms=7)
+        plt.plot(eps_list, 1-data[k], label=k, lw=lw, ms=7, c = colors[i],
+                 marker=markers[i] if marker else None,
+                 markeredgecolor='k' if marker else None)
     if eps_train is not None:
         plt.axvline(x=eps_train, color='k', linestyle='--')
     if legend: plt.legend()
@@ -105,7 +108,7 @@ def plot_hists(ratios, title=None, value_name=None, legend=True, add_markers=Fal
     
 
 def plot_training_curves(beta, defense, dirname, compare_inf=True, ylim=None, lw=2,
-                         num_batches_per_epoch=1, legend=True, ylabel=True):
+                         num_batches_per_epoch=1, legend=True, ylabel=True, printfinal=False):
     """Plot training and validation curves for paper"""
     markers = ['s', 'D', 'v', 'o', '+', '.', '^', '*']
     
@@ -156,6 +159,13 @@ def plot_training_curves(beta, defense, dirname, compare_inf=True, ylim=None, lw
     xm = xmax/2 + int(0.075*xmax)
     plt.plot(xm*num_batches_per_epoch, tt_acc2[xm] if xm < len(tt_acc2) else tt_acc2[-1],
              marker=markers[3], label=r'valid (SN)', lw=lw, ms=10, markeredgecolor='k', c='orange' )
+    
+    if printfinal:
+        if compare_inf:
+            print('Final train acc (beta = %s): %.4f'%(np.inf, curves1[0][-1]))
+            print('Final test acc (beta = %s): %.4f'%(np.inf, curves1[1][-1]))
+        print('Final train acc (beta = %s): %.4f'%(beta, curves2[0][-1]))
+        print('Final test acc (beta = %s): %.4f'%(beta, curves2[1][-1]))
         
     if num_batches_per_epoch != 1:
         plt.xlabel('training steps')
@@ -166,6 +176,49 @@ def plot_training_curves(beta, defense, dirname, compare_inf=True, ylim=None, lw
     plt.title('%s training'%(defense.upper()))
 #     plt.grid()
     if legend: plt.legend()
+        
+        
+def plot_training_curves_onenet(save_dir, ylim=None, lw=2, title=None, printfinal=False,
+                                num_batches_per_epoch=1, legend=True, ylabel=True):
+    """Plot training and validation curves for paper (just for a particular network)"""
+    markers = ['s', 'D', 'v', 'o', '+', '.', '^', '*']
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+    def smoothen(x, c=10):
+        x_new = np.array(x)
+        for i in range(len(x)):
+            if i >= c-1:
+                x_new[i] = np.mean(x[np.max((c-1, i-c+1)):i+1])
+        return x_new
+
+    curves = dl_utils.extract_train_valid_tensorboard(save_dir, curve='accuracy',
+                                                       show_plot=False, only_final_value=False)
+    tr_acc, tt_acc = smoothen(curves[0]), smoothen(curves[1])
+    xaxis = np.arange(len(tr_acc))*num_batches_per_epoch
+    plt.plot(xaxis, tr_acc, lw=lw, c=colors[0])
+    plt.plot(xaxis, tt_acc, lw=lw, c=colors[1])
+        
+    xmax = len(tr_acc)
+    xm = xmax/2 - int(0.0375*xmax)
+    plt.plot(xm*num_batches_per_epoch, tr_acc[xm],
+             marker=markers[0], label=r'train', lw=lw, ms=10, markeredgecolor='k', c=colors[0])
+    xm = xmax/2 + int(0.0375*xmax)
+    plt.plot(xm*num_batches_per_epoch, tt_acc[xm], 
+             marker=markers[1], label=r'valid', lw=lw, ms=10, markeredgecolor='k', c=colors[1])
+    
+    if printfinal:
+        print('Final train acc: %.4f'%(curves[0][-1]))
+        print('Final test acc: %.4f'%(curves[1][-1]))
+        
+    if num_batches_per_epoch != 1:
+        plt.xlabel('training steps')
+    else:
+        plt.xlabel('epoch')
+    if ylabel: plt.ylabel('accuracy')
+    if ylim is not None: plt.ylim(ylim)
+    if title is not None: plt.title(title)
+#     plt.grid()
+    if legend: plt.legend(loc=3)
         
         
 def get_margins(X, Y, save_dir, beta, arch, adv='erm', eps=0.3):
@@ -321,3 +374,12 @@ def get_table_results(Xtr, Ytr, Xva, Yva, Xtt, Ytt, arch, attacks_dict, results_
             pickle.dump(table_results, file(results_file, 'wb'))
         print_best_beta(tr_accs, va_accs, tt_accs, verbose=True, printinf=printinf)
     return table_results        
+
+
+def compute_output_input_norm_ratios(X, save_dir, arch, beta=1.0):
+    """Ratio of L2 norm of embedded layer v L2 norm of input"""
+    input_norms = np.sqrt(np.sum(np.square(X), axis=(1, 2, 3)))
+    output_norms = np.linalg.norm(dl_utils.get_embedding(X, save_dir, arch, adv='erm',
+                                                         beta=beta, num_channels=X.shape[-1]),
+                                  axis=1)
+    return output_norms/input_norms

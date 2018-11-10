@@ -211,13 +211,14 @@ def cifar10_one_hot(i):
   return v
 
 
-def get_cifar10_dataset(p_corrupt_label,n_samps=50000,rand_seed=None,onehot=False):
+def get_cifar10_dataset(p_corrupt_label,n_samps=50000,rand_seed=None,onehot=False,whiten=True):
   class params(cifar10_parameters):
-    def __init__(self,p,rand_seed,n_samp=50000):
+    def __init__(self,p,rand_seed,n_samp=50000,whiten=True):
       self.dataset = 'cifar10|SubS:tr:%s|RndL:trtt:%s'%(int(n_samp),int(p))
       self.rand_seed = rand_seed
+      self.per_image_whitening=whiten
 
-  p = params(p_corrupt_label,rand_seed,n_samp=n_samps)
+  p = params(p_corrupt_label,rand_seed,n_samp=n_samps,whiten=whiten)
   c = dataset(p)
   datasets = c.prepare_inputs()
 
