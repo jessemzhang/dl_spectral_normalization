@@ -136,7 +136,8 @@ def train(Xtr, Ytr, graph, save_dir,
           load_epoch=-1,
           early_stop_acc=None,
           early_stop_acc_num=10,
-          gpu_prop=0.2):
+          gpu_prop=0.2,
+          shuffle_data=True):
     """Train the graph"""
     
     np.random.seed(seed)
@@ -158,13 +159,16 @@ def train(Xtr, Ytr, graph, save_dir,
         if load_epoch > -1:
             if verbose:
                 print('Continuing training starting at epoch %s+1'%(load_epoch))
-            restore_weights_file = os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch))
-            graph['saver'].restore(sess, restore_weights_file)
+            if save_dir is not None:
+                restore_weights_file = os.path.join(save_dir, 'checkpoints', 'epoch%s'%(load_epoch))
+            if 'saver' in graph:
+                graph['saver'].restore(sess, restore_weights_file)
 
         else:
-            if not os.path.exists(os.path.join(save_dir, 'checkpoints')):
+            if save_dir is not None and not os.path.exists(os.path.join(save_dir, 'checkpoints')):
                 os.mkdir(os.path.join(save_dir, 'checkpoints'))
-            graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'epoch0'))
+            if 'saver' in graph and save_dir is not None:
+                graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'epoch0'))
         
         for epoch in range(load_epoch+2, load_epoch+num_epochs+2):
 
@@ -175,7 +179,10 @@ def train(Xtr, Ytr, graph, save_dir,
             training_loss = 0.
             training_acc = 0.
             steps = 0
-            Xtr_, Ytr_ = shuffle(Xtr, Ytr)
+            if shuffle_data:
+                Xtr_, Ytr_ = shuffle(Xtr, Ytr)
+            else:
+                Xtr_, Ytr_ = Xtr, Ytr
 
             if len(Xtr_)%batch_size == 0:
                 end = len(Xtr_)
@@ -199,7 +206,7 @@ def train(Xtr, Ytr, graph, save_dir,
                             len(Xtr_)/batch_size, time.time()-t, training_loss_, training_acc_),
                           end='')            
 
-            if epoch%write_every == 0: # writing to tensorboard
+            if 'saver' in graph and epoch%write_every == 0: # writing to tensorboard
                 summary = sess.run(graph['merged'], feed_dict=feed_dict)
                 graph['train_writer'].add_summary(summary, epoch)
 
@@ -209,7 +216,7 @@ def train(Xtr, Ytr, graph, save_dir,
                     summary = sess.run(graph['merged'], feed_dict=feed_dict)
                     graph['valid_writer'].add_summary(summary, epoch)
 
-            if epoch%save_every == 0: # saving weights
+            if 'saver' in graph and save_dir is not None and epoch%save_every == 0:
                 graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch)))
 
             training_losses.append(training_loss/float(steps))
@@ -222,7 +229,7 @@ def train(Xtr, Ytr, graph, save_dir,
                 break
 
         if verbose: print('\nDONE: Trained for %s epochs.'%(epoch))
-        if not os.path.exists(os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch))):
+        if 'saver' in graph and save_dir is not None and not os.path.exists(os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch))):
             graph['saver'].save(sess, os.path.join(save_dir, 'checkpoints', 'epoch%s'%(epoch)))
 
     return training_losses, training_accs
@@ -239,6 +246,7 @@ def build_graph_and_train(Xtr, Ytr, save_dir, arch,
                           beta=1.,
                           order=2,
                           opt='momentum',
+                          get_train_time=False,
                           **kwargs):
     """Build tensorflow graph and train"""
     
@@ -246,12 +254,16 @@ def build_graph_and_train(Xtr, Ytr, save_dir, arch,
 
     if verbose: start = time.time()
     with tf.device("/gpu:%s"%(gpu_id)):
-        if not os.path.exists(save_dir) or 'checkpoints' not in os.listdir(save_dir):
+        if save_dir is None or not os.path.exists(save_dir) or 'checkpoints' not in os.listdir(save_dir):
             graph = graph_builder_wrapper(arch, adv=adv, eps=eps, 
                                           num_classes=num_classes, save_dir=save_dir,
                                           wd=wd, beta=beta, num_channels=num_channels, 
                                           order=order, training=True, opt=opt)
+            if get_train_time:
+                start = time.time()
             tr_losses, tr_accs = train(Xtr, Ytr, graph, save_dir, **kwargs)
+            if get_train_time:
+                train_time = time.time()-start
         else:
             
             graph = graph_builder_wrapper(arch, num_classes=num_classes, save_dir=save_dir,
@@ -262,12 +274,20 @@ def build_graph_and_train(Xtr, Ytr, save_dir, arch,
                 
         if 'gpu_prop' in kwargs:
             gpu_prop = kwargs.get('gpu_prop', "default value")
-        Ytrhat = predict_labels(Xtr, graph, save_dir, gpu_prop=gpu_prop)
-        train_acc = np.sum(Ytrhat == Ytr)/float(len(Ytr))
+        if save_dir is None:
+            train_acc = np.nan
+            if verbose:
+                print('save_dir set to None.. returning NaN since weights not saved')
+        else:
+            Ytrhat = predict_labels(Xtr, graph, save_dir, gpu_prop=gpu_prop)
+            train_acc = np.sum(Ytrhat == Ytr)/float(len(Ytr))
 
     if verbose:
         print('Train acc: %.2f (%.1f s elapsed)'%(train_acc, time.time()-start))
 
+    if get_train_time:
+        return train_acc, train_time
+        
     return train_acc
 
 
