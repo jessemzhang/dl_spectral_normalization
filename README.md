@@ -1,6 +1,6 @@
 # Spectral Normalization for Deep Convolutional Networks
 
-The code in this repository accompanies the experiments performed in the paper [Generalizable Adversarial Training via Spectral Normalization](https://arxiv.org/) by Farnia, Zhang, and Tse.
+The code in this repository accompanies the experiments performed in the paper [Generalizable Adversarial Training via Spectral Normalization](https://arxiv.org/) by Farnia*, Zhang*, and Tse (*equal contributors).
 
 The repository contains the following:
 - [dl_spectral_normalization](https://github.com/jessemzhang/dl_spectral_normalization/tree/master/dl_spectral_normalization): Python deep learning module with spectral normalization code, code for building and training neural networks using TensorFlow, code for adversarially training networks, and example neural network architectures
