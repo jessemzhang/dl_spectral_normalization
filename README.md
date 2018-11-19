@@ -16,13 +16,13 @@ The dl_spectral_normalization package can be installed via pip:
 pip install dl_spectral_normalization
 ```
 
-An example approach for importing the package is as follows:
+An example approach for accessing package contents is as follows:
 
 ```python
 # Imports utilities for building and training networks
 from dl_spectral_normalization import dl_utils
 
-# Import one of the provided neural network architectures: alexnet
+# Import one of the provided neural network architectures: AlexNet
 from dl_spectral_normalization.models import alexnet
 
 # Import adversarial training methods
