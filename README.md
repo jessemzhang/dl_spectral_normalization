@@ -5,7 +5,7 @@ The code in this repository accompanies the experiments performed in the paper [
 The repository contains the following:
 - [dl_spectral_normalization](https://github.com/jessemzhang/dl_spectral_normalization/tree/master/dl_spectral_normalization): Python deep learning module with spectral normalization code, code for building and training neural networks using TensorFlow, code for adversarially training networks, and example neural network architectures
 - [notebooks_figures](https://github.com/jessemzhang/dl_spectral_normalization/tree/master/notebooks_figures): Contains scripts for generating all figures in the main text of the paper
-- [get_cifar10.py](https://github.com/jessemzhang/dl_spectral_normalization/blob/master/get_cifar10.py): Code for downloading and preprocessing datasets as described by [Zhang et al. 2016](https://arxiv.org/pdf/1611.03530.pdf)
+- [get_cifar10.py](https://github.com/jessemzhang/dl_spectral_normalization/blob/master/get_cifar10.py): Code for downloading and preprocessing datasets as described by [Zhang et al. 2017](https://arxiv.org/pdf/1611.03530.pdf)
 - [train_network_template.ipynb](https://github.com/jessemzhang/dl_spectral_normalization/blob/master/train_network_template.ipynb): Example notebook for training a neural network using the [dl_spectral_normalization](https://github.com/jessemzhang/dl_spectral_normalization/tree/master/dl_spectral_normalization) module
 
 ## Installation
