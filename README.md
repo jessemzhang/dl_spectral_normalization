@@ -18,7 +18,7 @@ pip install dl_spectral_normalization
 
 An example approach for importing the package is as follows:
 
-```
+```python
 # Imports utilities for building and training networks
 from dl_spectral_normalization import dl_utils
 
